@@ -15,7 +15,8 @@
     "@luma.gl/webgpu": "^9.3.6",
     "deck.gl": "^9.3.10",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "satellite.js": "^7.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
