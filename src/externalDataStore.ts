@@ -13,7 +13,7 @@ export const externalDataStore = {
                 const d = ev.data; 
                 switch (d.message) {
                     case "started": {
-                        console.log("worker started");
+                        console.log(`worker ${d.id} started`);
                         break;
                     }
                     case "data": {
@@ -22,7 +22,7 @@ export const externalDataStore = {
                         break;
                     }
                     case "ended": {
-                        console.log("worker ended")
+                        console.log(`worker ${d.id} ended`)
                         this.worker?.terminate()
                         break;
                     }

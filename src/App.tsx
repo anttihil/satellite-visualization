@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
-import DeckGL, {
-  FirstPersonView,
-  type FirstPersonViewState,
-  PolygonLayer,
-  PointCloudLayer,
-} from "deck.gl";
+
+import DeckGL, {_StatsWidget} from "@deck.gl/react";
+import { FirstPersonView, type FirstPersonViewState,} from "@deck.gl/core";
+import { PolygonLayer, PointCloudLayer } from "@deck.gl/layers";
+import "@deck.gl/widgets/stylesheet.css"
+import { _StatsWidget as StatsWidget, CompassWidget } from "@deck.gl/widgets";
 
 import { externalDataStore } from "./externalDataStore";
 
@@ -39,19 +39,15 @@ function App() {
   useEffect(()=> {
 
     let rafId = 0;
-    let lastTime = 0;
-    const THRESHOLD_MS = 17
 
-    const render: FrameRequestCallback = (currentTime)=> {
-
-      if (!lastTime) {
-        lastTime = currentTime
-      }
+    const render: FrameRequestCallback = ()=> {
       
-      if (currentTime - lastTime >= THRESHOLD_MS && externalDataStore.hasNewData) {
+      // The check is cheap and the bottleneck is in the satellite calculations
+      // so throttling here is not needed
+      if (externalDataStore.hasNewData) {
         setVisibleSatellites(externalDataStore.positions);
         externalDataStore.hasNewData = false;
-        lastTime = currentTime;
+        
       } 
       
       rafId = requestAnimationFrame(render)
@@ -101,7 +97,14 @@ function App() {
         initialViewState={INITIAL_VIEWSTATE}
         controller={true}
         layers={[backgroundLayers]}
-      />
+        widgets={[
+          new StatsWidget({type: "deck"}), new CompassWidget({
+            placement: "top-right"
+          })
+        ]}
+      >
+
+      </DeckGL>
     </>
   );
 }

@@ -6,7 +6,10 @@ import {
   gstime,
   degreesToRadians,
   type SatRec,
-  ecfToLookAngles
+  ecfToLookAngles,
+  type PositionAndVelocity,
+  type EcfVec3,
+  type LookAngles
 } from "satellite.js"
 
 const LATITUDE = 34.065235;
@@ -14,6 +17,8 @@ const LONGITUDE = -118.306915;
 const OBS_ALTITUDE_KM = 0.1;
 const FIXED_RANGE = 100;
 const TARGET_FPS = 60;
+const INTERVAL_MS = Math.floor(1000/TARGET_FPS)
+const WORKER_ID = Math.random().toString(10).slice(2, 10)
 
 const observerGd = {
   latitude: degreesToRadians(LATITUDE),
@@ -21,7 +26,8 @@ const observerGd = {
   height: OBS_ALTITUDE_KM
 }
 
-let satRecs: SatRec[] = []
+let satRecs: SatRec[] = [];
+
 
 function calculateENUPositions(satRecs: SatRec[]) {
     const now = new Date();
@@ -53,11 +59,17 @@ onmessage = async (ev)=> {
         const ommData = await loadSatellites();
         satRecs = ommData.map(item => json2satrec(item))
 
-        postMessage({message: "started"})
+        postMessage({
+          id: WORKER_ID,
+          message: "started"
+        })
 
         intervalId = setInterval( ()=> {
-          postMessage({message: "data", positions: calculateENUPositions(satRecs)})
-        }, 1000 / TARGET_FPS)
+        postMessage({
+          id: WORKER_ID,
+          message: "data", 
+          positions: calculateENUPositions(satRecs)})
+        }, INTERVAL_MS)
 
         break;
     }
@@ -66,7 +78,10 @@ onmessage = async (ev)=> {
       if (intervalId) {
         clearInterval(intervalId)
       }
-      postMessage({message:"ended"})
+      postMessage({
+        id: WORKER_ID,
+        message:"ended"
+      })
 
       break;
     }
