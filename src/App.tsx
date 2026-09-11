@@ -7,33 +7,14 @@ import DeckGL, {
   PointCloudLayer,
 } from "deck.gl";
 
-import { loadSatellites } from "./omm";
+import { externalDataStore } from "./externalDataStore";
 
-import {
-  ecfToLookAngles,
-  json2satrec,
-  propagate,
-  degreesToRadians,
-  eciToEcf,
-  gstime
-  
-} from "satellite.js"
-
-const LATITUDE = 34.065235;
-const LONGITUDE = -118.306915;
-const OBS_ALTITUDE_KM = 0.1
 const FIXED_RANGE = 100
 
 const INITIAL_VIEWSTATE:FirstPersonViewState = {
   position: [0,0,2],
   pitch: -20,
 };
-
-const observerGd = {
-  latitude: degreesToRadians(LATITUDE),
-  longitude: degreesToRadians(LONGITUDE),
-  height: OBS_ALTITUDE_KM
-}
 
 function createDiskData() {
  const diskData = []
@@ -49,43 +30,41 @@ function createDiskData() {
 }
 const DISK_DATA = createDiskData()
 
-
+externalDataStore.init()
 
 function App() {
 
   const [visibleSatellites, setVisibleSatellites] = useState<number[][]>([])
 
-  useEffect(()=>  {
+  useEffect(()=> {
 
-    async function loadData() {
-    const ommData = await loadSatellites()
+    let rafId = 0;
+    let lastTime = 0;
+    const THRESHOLD_MS = 17
 
-    const sats = ommData.map((item)=> json2satrec(item))
+    const render: FrameRequestCallback = (currentTime)=> {
 
-    const now = new Date();
+      if (!lastTime) {
+        lastTime = currentTime
+      }
+      
+      if (currentTime - lastTime >= THRESHOLD_MS && externalDataStore.hasNewData) {
+        setVisibleSatellites(externalDataStore.positions);
+        externalDataStore.hasNewData = false;
+        lastTime = currentTime;
+      } 
+      
+      rafId = requestAnimationFrame(render)
+    }
 
-    const props = sats.map((sat) => propagate(sat, now)).filter(prop => {
-      return prop !== null
-    })
+    render(performance.now());
 
-    const gmst = gstime(now)
+    return ()=> {
+      if (rafId) {
+        cancelAnimationFrame(rafId)
+      }
+    }
 
-    const lookAngles = props.map(prop=> eciToEcf(prop.position, gmst )).map(ecf => ecfToLookAngles(observerGd,ecf))
-
-    const enus = lookAngles.map(look => {
-      return [
-        FIXED_RANGE * Math.cos(look.elevation) * Math.sin(look.azimuth),
-        FIXED_RANGE * Math.cos(look.elevation) * Math.cos(look.azimuth),
-        FIXED_RANGE * Math.sin(look.elevation) 
-      ]
-    })
-    console.log(enus.slice(0,50))
-    setVisibleSatellites(enus)
-  }
-
-  loadData()
-
-  return ()=> {}
   }, [])
 
   const backgroundLayers = useMemo(
@@ -95,7 +74,6 @@ function App() {
     data: [DISK_DATA],
     getPolygon: d => d,
     coordinateSystem: "cartesian",
-    getLineColor: [255,255,255],
     getFillColor: [14, 44, 42],
     parameters: {
       depthCompare: 'less-equal',
