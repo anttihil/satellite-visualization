@@ -32,8 +32,9 @@ let satRecs: SatRec[] = [];
 function calculateENUPositions(satRecs: SatRec[]) {
     const now = new Date();
     const gmst = gstime(now)
-    
-    return satRecs
+   
+    performance.mark('calc-start')
+    const enus = satRecs
     .map((sat) => propagate(sat, now))
     .filter(prop => {
       return prop !== null
@@ -47,6 +48,9 @@ function calculateENUPositions(satRecs: SatRec[]) {
         FIXED_RANGE * Math.sin(look.elevation) 
       ]
     })
+    performance.mark('calc-end');
+    performance.measure('enu-calc', 'calc-start', 'calc-end');
+    return enus
   }
 
 let intervalId: NodeJS.Timeout | null = null

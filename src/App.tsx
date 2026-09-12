@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
-import DeckGL, {_StatsWidget} from "@deck.gl/react";
+import DeckGL, {_StatsWidget, type DeckGLRef} from "@deck.gl/react";
 import { FirstPersonView, type FirstPersonViewState,} from "@deck.gl/core";
 import { PolygonLayer, PointCloudLayer } from "@deck.gl/layers";
 import "@deck.gl/widgets/stylesheet.css"
@@ -34,20 +34,53 @@ externalDataStore.init()
 
 function App() {
 
-  const [visibleSatellites, setVisibleSatellites] = useState<number[][]>([])
-
+  const deck = useRef<DeckGLRef | null>(null);
+const backgroundLayers = useMemo(
+    () => [
+      new PolygonLayer({
+        id: "disk",
+        data: [DISK_DATA],
+        getPolygon: d => d,
+        coordinateSystem: "cartesian",
+        getFillColor: [14, 44, 42],
+        parameters: {
+          depthCompare: 'less-equal',
+          depthWriteEnabled: true
+        },
+      }), 
+    ],
+    [],
+  );
   useEffect(()=> {
 
     let rafId = 0;
+    let lastTime = 0;
+    const THRESHOLD_MS = 16;
 
-    const render: FrameRequestCallback = ()=> {
+    const render: FrameRequestCallback = (currentTime)=> {
       
-      // The check is cheap and the bottleneck is in the satellite calculations
-      // so throttling here is not needed
-      if (externalDataStore.hasNewData) {
-        setVisibleSatellites(externalDataStore.positions);
+      if (!lastTime) {
+        lastTime = currentTime
+      }
+       if (externalDataStore.hasNewData) {
+        deck.current?.deck?.setProps(
+          {
+            layers: [
+              ...backgroundLayers,
+              
+              new PointCloudLayer({
+                id: 'satellites',
+                coordinateSystem: "cartesian",
+                data: externalDataStore.positions,
+                getColor: [255,255,255, 255],
+                getPosition: d => d,
+                pointSize: 100
+              })        
+            ]
+          }
+        )
         externalDataStore.hasNewData = false;
-        
+        lastTime = currentTime;
       } 
       
       rafId = requestAnimationFrame(render)
@@ -63,34 +96,12 @@ function App() {
 
   }, [])
 
-  const backgroundLayers = useMemo(
-    () => [
-      new PolygonLayer({
-    id: "disk",
-    data: [DISK_DATA],
-    getPolygon: d => d,
-    coordinateSystem: "cartesian",
-    getFillColor: [14, 44, 42],
-    parameters: {
-      depthCompare: 'less-equal',
-      depthWriteEnabled: true
-    },
-  }), 
-      new PointCloudLayer({
-        id: 'satellites',
-        coordinateSystem: "cartesian",
-        data: visibleSatellites,
-        getColor: [255,255,255, 255],
-        getPosition: d => d,
-        pointSize: 100
-      })
-    ],
-    [visibleSatellites],
-  );
+  
 
   return (
     <>
       <DeckGL
+        ref={deck}
         views={new FirstPersonView({
           far: FIXED_RANGE *3
         })}
@@ -98,12 +109,9 @@ function App() {
         controller={true}
         layers={[backgroundLayers]}
         widgets={[
-          new StatsWidget({type: "deck"}), new CompassWidget({
-            placement: "top-right"
-          })
+          new StatsWidget({type: "deck"})
         ]}
       >
-
       </DeckGL>
     </>
   );
