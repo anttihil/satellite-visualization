@@ -10,12 +10,10 @@ import "@deck.gl/widgets/stylesheet.css";
 import { _StatsWidget as StatsWidget } from "@deck.gl/widgets";
 
 import { externalDataStore } from "./externalDataStore";
-import { HEADER_REV_INDEX, STRIDE_FLOATS } from "./consts";
+import { DISK_DATA, FAR, HEADER_REV_INDEX, INITIAL_FOVY, MAX_FOVY, MIN_FOVY, POINT_SIZE, STRIDE_FLOATS, WHEEL_LINE_PIXELS, ZOOM_SPEED } from "./consts";
 
-// The worker measures azimuth and elevation from the observer, so the camera must
-// sit on that point. An offset eye shifts near satellites more than far ones: two
-// units of height move a satellite at range 40 by 2.9 degrees, one at range 400 by
-// 0.28 degrees.
+// The satellite position calculations (lookAngles & ENU) place the observer at [0,0,0],
+// so we need to preserve that. 
 // At exactly +/-90 the view direction meets the up vector and the picture collapses
 // sideways, so the pitch stops one degree short of the zenith.
 const INITIAL_VIEWSTATE: FirstPersonViewState = {
@@ -24,20 +22,6 @@ const INITIAL_VIEWSTATE: FirstPersonViewState = {
   minPitch: -89,
   maxPitch: 89,
 };
-
-// Below the eye, so the ground still covers the lower half of the sky.
-const DISK_HEIGHT = -1;
-
-const FAR = 2000;
-const INITIAL_FOVY = 75;
-const MIN_FOVY = 2;
-// The projection is rectilinear, so it stretches the edges of the frame by 1/cos(angle
-// from the axis) or more. At 75 degrees the top edge stretches 1.55x, at 100 it is 2.32x.
-const MAX_FOVY = INITIAL_FOVY;
-// Firefox reports wheel deltas in lines, Chrome in pixels. One notch is 3 lines or 100 pixels.
-const WHEEL_LINE_PIXELS = 40;
-const ZOOM_SPEED = 0.0015;
-const POINT_SIZE = 200;
 
 // Look around only. Scroll, drag-pan and the keyboard all move the camera position.
 const CONTROLLER = {
@@ -49,20 +33,6 @@ const CONTROLLER = {
   keyboard: false,
   inertia: 300,
 };
-
-function createDiskData() {
-  const diskData = [];
-  const radius = 120;
-  const segments = 128;
-  for (let i = 0; i < segments; i++) {
-    const theta = (2 * Math.PI * i) / segments;
-    const x = radius * Math.sin(theta);
-    const y = radius * Math.cos(theta);
-    diskData.push([x, y, DISK_HEIGHT]);
-  }
-  return diskData;
-}
-const DISK_DATA = createDiskData();
 
 const BACKGROUND_LAYERS = [
   new PolygonLayer({
@@ -78,13 +48,6 @@ const BACKGROUND_LAYERS = [
   }),
 ];
 
-// How much a narrower field of view magnifies the sky, against the initial view.
-function magnification(fovy: number) {
-  return (
-    Math.tan((INITIAL_FOVY * Math.PI) / 360) / Math.tan((fovy * Math.PI) / 360)
-  );
-}
-
 function createLayers(fovy: number) {
   const { positions, satIds } = externalDataStore;
   if (!positions) {
@@ -96,7 +59,7 @@ function createLayers(fovy: number) {
       id: "satellites",
       coordinateSystem: "cartesian",
       pickable: true,
-      // Binary attribute: uploaded straight to the GPU, no per-point callback.
+      // this is binary data from SharedArrayBuffer, this loads it straight to GPU without checks
       data: {
         length: satIds.length,
         attributes: {
@@ -108,7 +71,7 @@ function createLayers(fovy: number) {
       getColor: [255, 255, 255, 255],
       // The shader adds pointSize before the perspective divide, so a point already
       // shrinks with distance but ignores the field of view. Scale it by hand.
-      pointSize: POINT_SIZE * magnification(fovy),
+      pointSize: POINT_SIZE * (- (fovy / 25) + 4),
       onClick: (info) => {
         if (!info.picked) return;
         console.log("satellite", satIds[info.index]);
@@ -124,8 +87,7 @@ export function SkyView() {
   useEffect(() => {
     let fovy = INITIAL_FOVY;
 
-    // React owns the canvas element. A canvas that Deck creates itself can outlive
-    // finalize() and stay in the DOM when the effect runs twice.
+    
     const deck = new Deck({
       parent: container.current,
       canvas: canvas.current,
@@ -156,6 +118,11 @@ export function SkyView() {
     };
     window.addEventListener("wheel", onWheel, { passive: true });
 
+
+    // the purpose here is to avoid creating a useState trigger.
+    // the difference is probably not much even at 60Hz, but since we are using SharedArrayBuffer
+    // whose memory address doesn't change anyway, we might as well remove React diffing
+    // and scheduling from touching Deck.gl
     let rafId = 0;
     let lastRev = -1;
     const render = () => {

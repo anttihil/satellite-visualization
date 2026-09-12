@@ -32,11 +32,11 @@ export const externalDataStore = {
       switch (d.message) {
         case "started": {
           externalDataStore.satIds = d.satIds;
-          console.log(`worker ${d.id} started, ${d.satIds.length} satellites`);
+          console.info(`worker ${d.id} started, ${d.satIds.length} satellites`);
           break;
         }
         case "ended": {
-          console.log(`worker ${d.id} ended`);
+          console.info(`worker ${d.id} ended`);
           this.worker?.terminate();
           break;
         }
