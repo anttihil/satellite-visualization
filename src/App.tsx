@@ -8,6 +8,7 @@ import "@deck.gl/widgets/stylesheet.css";
 import { _StatsWidget as StatsWidget } from "@deck.gl/widgets";
 
 import { externalDataStore } from "./externalDataStore";
+import { HEADER_REV_INDEX, STRIDE_FLOATS } from "./consts";
 
 const INITIAL_VIEWSTATE: FirstPersonViewState = {
   position: [0, 0, 2],
@@ -50,13 +51,14 @@ function App() {
   );
   useEffect(() => {
     let rafId = 0;
-    let lastTime = 0;
+    let lastRev = -1;
 
-    const render: FrameRequestCallback = (currentTime) => {
-      if (!lastTime) {
-        lastTime = currentTime;
-      }
-      if (externalDataStore.hasNewData) {
+    const render: FrameRequestCallback = () => {
+      const { headerInts, positions, satIds } = externalDataStore;
+      const rev = headerInts ? Atomics.load(headerInts, HEADER_REV_INDEX) : -1;
+
+      if (rev !== lastRev && positions) {
+        lastRev = rev;
         deck.current?.deck?.setProps({
           layers: [
             ...backgroundLayers,
@@ -64,15 +66,23 @@ function App() {
             new PointCloudLayer({
               id: "satellites",
               coordinateSystem: "cartesian",
-              data: externalDataStore.positions,
+              pickable: true,
+              // Binary attribute: uploaded straight to the GPU, no per-point callback.
+              data: {
+                length: satIds.length,
+                attributes: {
+                  getPosition: { value: positions, size: STRIDE_FLOATS },
+                },
+              },
               getColor: [255, 255, 255, 255],
-              getPosition: (d) => d,
               pointSize: 100,
+              onClick: (info) => {
+                if (!info.picked) return;
+                console.log("satellite", satIds[info.index]);
+              },
             }),
           ],
         });
-        externalDataStore.hasNewData = false;
-        lastTime = currentTime;
       }
 
       rafId = requestAnimationFrame(render);
