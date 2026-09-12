@@ -1,13 +1,12 @@
 :root {
   font: 16px;
-  color: #FFF;
+  color: #fff;
   background: #000;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-
 
 body {
   margin: 0;
