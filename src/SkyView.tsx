@@ -37,7 +37,7 @@ const MAX_FOVY = INITIAL_FOVY;
 // Firefox reports wheel deltas in lines, Chrome in pixels. One notch is 3 lines or 100 pixels.
 const WHEEL_LINE_PIXELS = 40;
 const ZOOM_SPEED = 0.0015;
-const POINT_SIZE = 100;
+const POINT_SIZE = 200;
 
 // Look around only. Scroll, drag-pan and the keyboard all move the camera position.
 const CONTROLLER = {
@@ -103,6 +103,8 @@ function createLayers(fovy: number) {
           getPosition: { value: positions, size: STRIDE_FLOATS },
         },
       },
+      autoHighlight: true,
+      highlightColor: [120, 1, 120, 255],
       getColor: [255, 255, 255, 255],
       // The shader adds pointSize before the perspective divide, so a point already
       // shrinks with distance but ignores the field of view. Scale it by hand.
@@ -132,8 +134,13 @@ export function SkyView() {
       controller: CONTROLLER,
       layers: createLayers(fovy),
       widgets: [new StatsWidget({ type: "deck" })],
+      pickingRadius: 25,
+      getTooltip: (info) => {
+        if (!info.picked) return null
+        return "satellite" + ' ' + externalDataStore.satIds[info.index]
+      }
     });
-
+ 
     // Optical zoom: narrow the field of view instead of moving the camera.
     const onWheel = (event: WheelEvent) => {
       const delta =
