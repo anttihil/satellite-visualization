@@ -3,3 +3,10 @@
   position: fixed;
   inset: 0;
 }
+
+.location {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  background: darkslategray
+}

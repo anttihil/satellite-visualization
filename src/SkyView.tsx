@@ -11,6 +11,7 @@ import { _StatsWidget as StatsWidget } from "@deck.gl/widgets";
 
 import { externalDataStore } from "./externalDataStore";
 import { DISK_DATA, FAR, HEADER_REV_INDEX, INITIAL_FOVY, MAX_FOVY, MIN_FOVY, POINT_SIZE, STRIDE_FLOATS, WHEEL_LINE_PIXELS, ZOOM_SPEED } from "./consts";
+import { ObserverLocationBox } from "./ObserverLocationBox";
 
 // The satellite position calculations (lookAngles & ENU) place the observer at [0,0,0],
 // so we need to preserve that. 
@@ -49,7 +50,7 @@ const BACKGROUND_LAYERS = [
 ];
 
 function createLayers(fovy: number) {
-  const { positions, satIds } = externalDataStore;
+  const { positions, satIds, omm } = externalDataStore;
   if (!positions) {
     return BACKGROUND_LAYERS;
   }
@@ -74,7 +75,7 @@ function createLayers(fovy: number) {
       pointSize: POINT_SIZE * (- (fovy / 25) + 4),
       onClick: (info) => {
         if (!info.picked) return;
-        console.log("satellite", satIds[info.index]);
+        console.log("satellite", omm[info.index].OBJECT_NAME);
       },
     }),
   ];
@@ -84,10 +85,11 @@ export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
 
+  
+
   useEffect(() => {
     let fovy = INITIAL_FOVY;
 
-    
     const deck = new Deck({
       parent: container.current,
       canvas: canvas.current,
@@ -99,7 +101,9 @@ export function SkyView() {
       pickingRadius: 25,
       getTooltip: (info) => {
         if (!info.picked) return null
-        return "satellite" + ' ' + externalDataStore.satIds[info.index]
+        const meta = externalDataStore.omm[info.index];
+
+        return meta.OBJECT_NAME
       }
     });
  
@@ -117,7 +121,6 @@ export function SkyView() {
       });
     };
     window.addEventListener("wheel", onWheel, { passive: true });
-
 
     // the purpose here is to avoid creating a useState trigger.
     // the difference is probably not much even at 60Hz, but since we are using SharedArrayBuffer
@@ -148,6 +151,7 @@ export function SkyView() {
   return (
     <div ref={container} className="sky">
       <canvas ref={canvas} />
+      <ObserverLocationBox/>
     </div>
   );
 }

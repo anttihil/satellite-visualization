@@ -11,6 +11,7 @@ import {
   RANGE_SCALE,
   STRIDE_FLOATS,
 } from "./consts";
+import type { ObserverLocation } from "./externalDataStore";
 import { loadSatellites } from "./omm";
 import {
   json2satrec,
@@ -24,15 +25,17 @@ import {
 
 const WORKER_ID = Math.random().toString(10).slice(2, 10);
 
-const observerGd = {
-  latitude: degreesToRadians(LATITUDE),
-  longitude: degreesToRadians(LONGITUDE),
-  height: OBS_ALTITUDE_KM,
-};
+
 
 let satRecs: SatRec[] = [];
 let headerIntView!: Int32Array;
 let positionsView!: Float32Array;
+
+let observerGd: ObserverLocation = {
+  latitude: degreesToRadians(LATITUDE),
+  longitude: degreesToRadians(LONGITUDE),
+  height: OBS_ALTITUDE_KM,
+};
 
 function writeSlots(from: number, to: number) {
   const now = new Date();
@@ -82,6 +85,7 @@ onmessage = async (ev) => {
         id: WORKER_ID,
         message: "started",
         satIds: satRecs.map((sat) => sat.satnum),
+        omm: ommData
       });
 
       const sliceSize = Math.ceil(satRecs.length / CHUNKS);
@@ -94,6 +98,12 @@ onmessage = async (ev) => {
       }, FRAME_BUDGET_MS);
 
       break;
+    }
+
+    case "location": {
+      observerGd = msg.data as ObserverLocation;
+      console.log(`long: ${observerGd.longitude} lat: ${observerGd.latitude}`)
+      break; 
     }
 
     case "end": {
