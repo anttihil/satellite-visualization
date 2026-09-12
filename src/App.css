@@ -1,0 +1,5 @@
+/* Deck appends its canvas here and sizes it to 100% of this box. */
+.sky {
+  position: fixed;
+  inset: 0;
+}
