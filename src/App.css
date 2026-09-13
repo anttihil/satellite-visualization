@@ -6,6 +6,7 @@
 
 .location {
   position: fixed;
+  padding: 5px;
   right: 20px;
   top: 20px;
   background: darkslategray
