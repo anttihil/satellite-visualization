@@ -119,8 +119,8 @@
 .location {
   position: fixed;
   padding: 12px;
-  right: 20px;
-  bottom: 76px;
+  right: max(16px, env(safe-area-inset-right));
+  top: max(16px, env(safe-area-inset-top));
   /* Avoid Chromium software-renderer occlusion artifacts on the WebGL canvas. */
   background: rgba(47, 79, 79, 0.99);
   width: 300px;
@@ -197,10 +197,8 @@
 
 @media (max-width: 600px) {
   .location {
-    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 56px);
-    right: 12px;
     width: auto;
-    max-width: calc(100vw - 80px);
+    max-width: calc(100vw - 116px);
     padding: 10px 12px;
     border-radius: 6px;
   }
