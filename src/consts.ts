@@ -11,7 +11,7 @@ export const STRIDE_FLOATS = 3;
 export const BYTES_PER_FLOAT = 4;
 export const MAX_SATS = 20000;
 
-// Below the ground disk and past the far plane, so hidden satellites clip away.
+// Past the far plane, so hidden satellites clip away.
 export const HIDDEN = -10000;
 
 // Header segment (first 64 bytes for cache line alignment):
@@ -49,9 +49,6 @@ export const INITIAL_VIEWSTATE: FirstPersonViewState = {
   maxPitch: 89,
 };
 
-// Below the eye, so the ground still covers the lower half of the sky.
-const DISK_HEIGHT = -1;
-
 export const FAR = 2000;
 export const INITIAL_FOVY = 75;
 export const MIN_FOVY = 2;
@@ -73,18 +70,3 @@ export const CONTROLLER = {
   keyboard: false,
   inertia: 300,
 };
-
-// creates the Earth "disk" under the observer
-function createDiskData() {
-  const diskData = [];
-  const radius = 120;
-  const segments = 128;
-  for (let i = 0; i < segments; i++) {
-    const theta = (2 * Math.PI * i) / segments;
-    const x = radius * Math.sin(theta);
-    const y = radius * Math.cos(theta);
-    diskData.push([x, y, DISK_HEIGHT]);
-  }
-  return diskData;
-}
-export const DISK_DATA = createDiskData();
