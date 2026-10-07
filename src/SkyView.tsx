@@ -32,7 +32,7 @@ export function SkyView() {
     let fovy = INITIAL_FOVY;
     let hoveredIndex = -1;
     let selectedIndex = -1;
-    let touchInput = false;
+    let touchInput = window.matchMedia("(hover: none)").matches;
     let pitch = INITIAL_VIEWSTATE.pitch ?? 0;
     let solarElevation = sunElevation(new Date(), locationStore.location);
     const updateDaylight = () => {
@@ -44,6 +44,12 @@ export function SkyView() {
         [hoveredIndex, selectedIndex].filter((index) => index >= 0),
       );
       deck.setProps({ layers: createLayers() });
+    };
+    const selectSatellite = (index: number) => {
+      selectedIndex = index;
+      if (touchInput) hoveredIndex = -1;
+      setSelectedSatelliteIndex(selectedIndex);
+      updateTrajectories();
     };
     function createLayers() {
       const daylightAmount = Math.max(0, Math.min(1, (solarElevation + 6) / 12));
@@ -152,7 +158,10 @@ export function SkyView() {
               getPosition: { value: positions, size: STRIDE_FLOATS },
             },
           },
-          autoHighlight: true,
+          // Deck's automatic picking highlight also reacts to touch, independently
+          // of onHover. Keep it tied to genuine mouse hover so it cannot mask selection.
+          autoHighlight: false,
+          highlightedObjectIndex: hoveredIndex,
           highlightColor: [100, 255, 140, 255],
           getColor: (_, { index }) =>
             index === selectedIndex ? [80, 210, 255, 255] : [255, 255, 255, 255],
@@ -180,8 +189,8 @@ export function SkyView() {
       },
       widgets: import.meta.env.DEV ? [new StatsWidget({ type: "deck", placement: "bottom-left" })] : [],
       pickingRadius: 25,
-      onHover: (info) => {
-        if (touchInput) return;
+      onHover: (info, event) => {
+        if (touchInput || event.pointerType === "touch" || window.matchMedia("(hover: none)").matches) return;
         const index =
           info.picked && info.layer?.id === "satellites" ? info.index : -1;
         if (index === hoveredIndex) return;
@@ -189,13 +198,10 @@ export function SkyView() {
         updateTrajectories();
       },
       onClick: (info, event) => {
-        // Touch selection is handled by native pointer events below. Some mobile
-        // browsers recognize Deck's hover gesture but never emit its click gesture.
-        if (event.pointerType === "touch") return;
-        selectedIndex =
-          info.picked && info.layer?.id === "satellites" ? info.index : -1;
-        setSelectedSatelliteIndex(selectedIndex);
-        updateTrajectories();
+        // Keep Deck's tap gesture as a selection path alongside the native fallback.
+        // Either path must select the satellite and request its trajectory.
+        if (event.pointerType === "touch") touchInput = true;
+        selectSatellite(info.picked && info.layer?.id === "satellites" ? info.index : -1);
       },
       getTooltip: (info) => {
         if (touchInput || window.matchMedia("(hover: none)").matches) return null;
@@ -210,6 +216,10 @@ export function SkyView() {
     const onPointerDown = (event: PointerEvent) => {
       touchInput = event.pointerType === "touch";
       if (event.pointerType !== "touch") return;
+      if (hoveredIndex !== -1) {
+        hoveredIndex = -1;
+        updateTrajectories();
+      }
       if (!event.isPrimary) {
         touch = null;
         return;
@@ -236,16 +246,15 @@ export function SkyView() {
         radius: 25,
         layerIds: ["satellites"],
       });
-      selectedIndex = info?.picked ? info.index : -1;
-      hoveredIndex = -1;
-      setSelectedSatelliteIndex(selectedIndex);
-      updateTrajectories();
+      touchInput = true;
+      selectSatellite(info?.picked ? info.index : -1);
     };
     const onPointerCancel = () => { touch = null; };
-    skyCanvas.addEventListener("pointerdown", onPointerDown);
-    skyCanvas.addEventListener("pointermove", onPointerMove);
-    skyCanvas.addEventListener("pointerup", onPointerUp);
-    skyCanvas.addEventListener("pointercancel", onPointerCancel);
+    // Observe native input before Deck's gesture handlers process it.
+    skyCanvas.addEventListener("pointerdown", onPointerDown, true);
+    skyCanvas.addEventListener("pointermove", onPointerMove, true);
+    skyCanvas.addEventListener("pointerup", onPointerUp, true);
+    skyCanvas.addEventListener("pointercancel", onPointerCancel, true);
     const refreshDaylight = () => {
       updateDaylight();
       deck.setProps({ layers: createLayers() });
@@ -305,10 +314,10 @@ export function SkyView() {
       unsubscribeLocation();
       window.clearInterval(daylightInterval);
       window.removeEventListener("wheel", onWheel);
-      skyCanvas.removeEventListener("pointerdown", onPointerDown);
-      skyCanvas.removeEventListener("pointermove", onPointerMove);
-      skyCanvas.removeEventListener("pointerup", onPointerUp);
-      skyCanvas.removeEventListener("pointercancel", onPointerCancel);
+      skyCanvas.removeEventListener("pointerdown", onPointerDown, true);
+      skyCanvas.removeEventListener("pointermove", onPointerMove, true);
+      skyCanvas.removeEventListener("pointerup", onPointerUp, true);
+      skyCanvas.removeEventListener("pointercancel", onPointerCancel, true);
       externalDataStore.setTrajectoryIndices([]);
       deck.finalize();
     };
