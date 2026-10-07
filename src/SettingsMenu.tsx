@@ -61,7 +61,7 @@ export function SettingsMenu({ orientationEnabled, orientationStatus, onOrientat
               orientationStatus.mode === "denied" ? "Motion access was denied. Allow it in browser settings, then try again." :
               orientationStatus.mode === "unavailable" ? "No orientation readings. Use a phone with motion sensors over HTTPS." :
               orientationStatus.mode === "waiting" ? "Waiting for sensor readings…" :
-              `${orientationStatus.absolute ? "Compass-aligned" : "Relative"} orientation. Drag to look around manually; tap the crosshair to follow your phone again.`}</p>
+              `${orientationStatus.absolute ? "Compass-aligned" : "Relative"} orientation. Drag to look around manually. Phone tracking resumes after 3 seconds of inactivity; tap the crosshair to return sooner.`}</p>
           </section>
           <section aria-label="Observer location">
             <h2>Observer location</h2>

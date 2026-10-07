@@ -1,6 +1,7 @@
 export type OrientationMode = "waiting" | "permission" | "denied" | "unavailable" | "tracking" | "manual" | "disabled";
 export type OrientationStatus = { mode: OrientationMode; absolute: boolean };
 export type Direction = { bearing: number; pitch: number };
+export const MANUAL_ORIENTATION_TIMEOUT_MS = 3000;
 
 type OrientationAPI = typeof DeviceOrientationEvent & {
   requestPermission?: (absolute?: boolean) => Promise<"granted" | "denied">;
@@ -40,6 +41,7 @@ export class PhoneOrientation {
   private sample: (Direction & { absolute: boolean }) | null = null;
   private offset: Direction | null = null;
   private timer = 0;
+  private resumeTimer = 0;
   private absoluteReceived = false;
   private listening = false;
 
@@ -114,13 +116,25 @@ export class PhoneOrientation {
   }
 
   resume() {
+    window.clearTimeout(this.resumeTimer);
     if (!this.enabled) return;
     if (!this.sample) { this.start(true); return; }
     this.setMode("tracking");
   }
 
-  manual() {
+  manual(dragging = false) {
     if (this.status.mode === "tracking" || this.status.mode === "waiting") this.setMode("manual");
+    if (this.status.mode !== "manual") return;
+    window.clearTimeout(this.resumeTimer);
+    // Wait until release; a stationary finger during a drag is not inactivity.
+    // Inertia updates also restart the countdown, keeping the two inputs apart.
+    if (!dragging) {
+      this.resumeTimer = window.setTimeout(() => {
+        if (this.status.mode !== "manual") return;
+        if (this.sample) this.resume();
+        else this.setMode("unavailable");
+      }, MANUAL_ORIENTATION_TIMEOUT_MS);
+    }
   }
 
   direction(): Direction | null {
@@ -133,6 +147,7 @@ export class PhoneOrientation {
 
   private stop() {
     window.clearTimeout(this.timer);
+    window.clearTimeout(this.resumeTimer);
     window.removeEventListener("deviceorientation", this.onOrientation);
     window.removeEventListener("deviceorientationabsolute", this.onOrientation);
     this.listening = false;

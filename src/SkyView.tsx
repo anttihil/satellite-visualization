@@ -194,10 +194,17 @@ export function SkyView() {
       controller: CONTROLLER,
       layers: createLayers(),
       onViewStateChange: ({ viewState, interactionState }) => {
-        if (interactionState.isDragging) orientation.current?.manual();
+        const nextCamera = viewState as typeof INITIAL_VIEWSTATE;
+        const directionChanged = Math.abs(angleDifference(nextCamera.bearing ?? 0, camera.bearing)) > 0.0001 ||
+          Math.abs((nextCamera.pitch ?? 0) - (camera.pitch ?? 0)) > 0.0001;
+        // Deck also starts a drag for some stationary touches. Only a real
+        // change in viewing direction should interrupt sensor tracking.
+        if ((interactionState.isDragging && directionChanged) || orientation.current?.status.mode === "manual") {
+          orientation.current?.manual(interactionState.isDragging ?? false);
+        }
         // A return-to-sensor tap can happen before drag inertia has finished.
         if (orientation.current?.status.mode === "tracking") return null;
-        camera = { ...camera, ...viewState as typeof INITIAL_VIEWSTATE, bearing: (viewState as typeof INITIAL_VIEWSTATE).bearing ?? camera.bearing };
+        camera = { ...camera, ...nextCamera, bearing: nextCamera.bearing ?? camera.bearing };
         deck.setProps({ viewState: camera });
         const nextPitch = camera.pitch ?? 0;
         if ((pitch > 40) !== (nextPitch > 40)) {

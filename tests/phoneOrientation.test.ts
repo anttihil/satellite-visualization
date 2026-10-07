@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { angleDifference, phoneDirection } from "../src/phoneOrientation.ts";
+import { angleDifference, phoneDirection, PhoneOrientation, MANUAL_ORIENTATION_TIMEOUT_MS } from "../src/phoneOrientation.ts";
 
 function reading(alpha: number, beta: number, gamma: number, absolute = true) {
   return { alpha, beta, gamma, absolute } as DeviceOrientationEvent;
@@ -44,4 +44,55 @@ test("heading interpolation crosses north by the shortest path", () => {
   close(angleDifference(1, 359), 2);
   close(angleDifference(359, 1), -2);
   close(angleDifference(-719, 359), 2);
+});
+
+test("manual override waits for release and inactivity, and respects disable/dispose", (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const events = new EventTarget();
+  const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const oldAPI = Object.getOwnPropertyDescriptor(globalThis, "DeviceOrientationEvent");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {
+    isSecureContext: true,
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  } });
+  Object.defineProperty(globalThis, "DeviceOrientationEvent", { configurable: true, value: Event });
+  const sensor = new PhoneOrientation(() => {}, () => ({ bearing: 0, pitch: 0 }));
+  try {
+    const event = Object.assign(new Event("deviceorientationabsolute"), reading(0, 90, 0));
+    events.dispatchEvent(event);
+    assert.equal(sensor.status.mode, "tracking");
+    sensor.manual(true);
+    context.mock.timers.tick(MANUAL_ORIENTATION_TIMEOUT_MS * 2);
+    assert.equal(sensor.status.mode, "manual", "holding a drag must not resume tracking");
+    sensor.manual(false);
+    context.mock.timers.tick(MANUAL_ORIENTATION_TIMEOUT_MS - 1);
+    assert.equal(sensor.status.mode, "manual");
+    sensor.manual(false);
+    context.mock.timers.tick(MANUAL_ORIENTATION_TIMEOUT_MS - 1);
+    assert.equal(sensor.status.mode, "manual", "further manual updates reset the countdown");
+    context.mock.timers.tick(1);
+    assert.equal(sensor.status.mode, "tracking");
+    sensor.manual(false);
+    sensor.resume();
+    assert.equal(sensor.status.mode, "tracking", "the button returns immediately");
+    sensor.manual(false);
+    sensor.setEnabled(false);
+    context.mock.timers.tick(MANUAL_ORIENTATION_TIMEOUT_MS);
+    assert.equal(sensor.status.mode, "disabled");
+    sensor.setEnabled(true);
+    events.dispatchEvent(event);
+    sensor.manual(false);
+    sensor.dispose();
+    context.mock.timers.tick(MANUAL_ORIENTATION_TIMEOUT_MS);
+    assert.equal(sensor.status.mode, "manual", "dispose cancels pending callbacks");
+  } finally {
+    sensor.dispose();
+    if (oldWindow) Object.defineProperty(globalThis, "window", oldWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+    if (oldAPI) Object.defineProperty(globalThis, "DeviceOrientationEvent", oldAPI);
+    else Reflect.deleteProperty(globalThis, "DeviceOrientationEvent");
+  }
 });
