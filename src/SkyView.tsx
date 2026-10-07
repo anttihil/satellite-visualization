@@ -6,7 +6,7 @@ import "@deck.gl/widgets/stylesheet.css";
 import { _StatsWidget as StatsWidget } from "@deck.gl/widgets";
 
 import { externalDataStore, locationStore, type Trajectory } from "./externalDataStore";
-import { CompassLabelExtension, compass, groundBands, groundDirections, horizon, referencePosition, sunElevation, type Position } from "./earthReference";
+import { CompassLabelExtension, compass, groundBands, groundDirections, horizon, sunElevation } from "./earthReference";
 import {
   CONTROLLER,
   FAR,
@@ -123,28 +123,8 @@ export function SkyView() {
       if (!positions || !satIds.length) {
         return backgroundLayers;
       }
-      const offset = selectedIndex * STRIDE_FLOATS;
-      const selectedVisible = selectedIndex >= 0 && positions[offset + 2] > 0;
-      const azimuth = selectedVisible ? Math.atan2(positions[offset], positions[offset + 1]) : 0;
-      const elevation = selectedVisible ? Math.atan2(positions[offset + 2], Math.hypot(positions[offset], positions[offset + 1])) : 0;
-      const guide: { path: Position[] }[] = selectedVisible ? [{
-        path: Array.from({ length: 65 }, (_, i) => referencePosition(azimuth, elevation * i / 64)),
-      }, {
-        path: [referencePosition(azimuth, -0.8 * Math.PI / 180), referencePosition(azimuth, 0.8 * Math.PI / 180)],
-      }] : [];
       return [
         ...backgroundLayers,
-        new PathLayer({
-          id: "selected-horizon-guide",
-          data: guide,
-          coordinateSystem: "cartesian",
-          getPath: (d) => d.path,
-          getColor: (_d, { index }) => index === 0 ? [255, 190, 60, 65] : [255, 190, 60, 240],
-          getWidth: (_d, { index }) => index === 0 ? 1 : 3,
-          widthUnits: "pixels",
-          billboard: true,
-          parameters: { depthWriteEnabled: false },
-        }),
         new PathLayer<Trajectory>({
           id: "satellite-trajectories",
           data: trajectories,
