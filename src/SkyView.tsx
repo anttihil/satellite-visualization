@@ -153,8 +153,10 @@ export function SkyView() {
             },
           },
           autoHighlight: true,
-          highlightColor: [120, 1, 120, 255],
-          getColor: [255, 255, 255, 255],
+          highlightColor: [100, 255, 140, 255],
+          getColor: (_, { index }) =>
+            index === selectedIndex ? [80, 210, 255, 255] : [255, 255, 255, 255],
+          updateTriggers: { getColor: selectedIndex },
           // The shader adds pointSize before the perspective divide, so a point already
           // shrinks with distance but ignores the field of view. Scale it by hand.
           pointSize: POINT_SIZE * (-(fovy / 25) + 4),
