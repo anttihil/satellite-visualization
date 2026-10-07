@@ -18,6 +18,12 @@ For a step-by-step explanation of the architecture, setup, deployment, and recov
 read the [Cloudflare setup tutorial](CLOUDFLARE_SETUP.md).
 
 The Vite build and API run together on Cloudflare Workers with Static Assets.
+Production is served at https://orbitgaze.app, configured as a Worker Custom Domain
+in `wrangler.jsonc`. The `workers.dev` URL is disabled.
+The domain's Cloudflare WAF rate-limiting rule (`satellite_api_rate_limit`) limits
+GET and HEAD requests under `/api/` to 30 requests per 10 seconds per IP
+(per Cloudflare data center), then blocks matching requests for 10 seconds.
+This zone-level rule is managed separately from Wrangler deployments.
 Production data is stored in Workers KV; ordinary Vite development uses the bundled
 `public/active_satellites.json` fixture and never contacts CelesTrak.
 
