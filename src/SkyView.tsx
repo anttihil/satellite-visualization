@@ -20,14 +20,13 @@ import {
   WHEEL_LINE_PIXELS,
   ZOOM_SPEED,
 } from "./consts";
-import { ObserverLocationBox } from "./ObserverLocationBox";
-import { SatelliteDataStatus } from "./SatelliteDataStatus";
+import { SatelliteDetails } from "./SatelliteDetails";
+import { SettingsMenu } from "./SettingsMenu";
 
 export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [selectedSatelliteIndex, setSelectedSatelliteIndex] = useState(-1);
-  const [daylight, setDaylight] = useState("Night");
 
   useEffect(() => {
     let fovy = INITIAL_FOVY;
@@ -38,7 +37,6 @@ export function SkyView() {
     let solarElevation = sunElevation(new Date(), locationStore.location);
     const updateDaylight = () => {
       solarElevation = sunElevation(new Date(), locationStore.location);
-      setDaylight(solarElevation >= 0 ? "Daylight" : solarElevation >= -18 ? "Twilight" : "Night");
     };
     updateDaylight();
     const updateTrajectories = () => {
@@ -180,7 +178,7 @@ export function SkyView() {
           deck.setProps({ layers: createLayers() });
         }
       },
-      widgets: [new StatsWidget({ type: "deck" })],
+      widgets: import.meta.env.DEV ? [new StatsWidget({ type: "deck", placement: "bottom-left" })] : [],
       pickingRadius: 25,
       onHover: (info) => {
         if (touchInput) return;
@@ -257,7 +255,7 @@ export function SkyView() {
 
     // Optical zoom: narrow the field of view instead of moving the camera.
     const onWheel = (event: WheelEvent) => {
-      if (event.target instanceof Element && event.target.closest(".location")) return;
+      if (event.target instanceof Element && event.target.closest(".location, .settings, .settings-toggle")) return;
       const delta =
         event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE_PIXELS;
       fovy = Math.min(
@@ -319,14 +317,8 @@ export function SkyView() {
   return (
     <div ref={container} className="sky">
       <canvas ref={canvas} />
-      <div className="sky-reference" aria-label="Sky reference">
-        <span>{daylight}</span>
-        <span>Horizon 0° · N / E / S / W</span>
-      </div>
-      <ObserverLocationBox
-        selectedIndex={selectedSatelliteIndex}
-      />
-      <SatelliteDataStatus />
+      <SettingsMenu />
+      {selectedSatelliteIndex >= 0 && <SatelliteDetails selectedIndex={selectedSatelliteIndex} />}
     </div>
   );
 }

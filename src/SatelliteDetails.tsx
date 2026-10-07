@@ -10,7 +10,7 @@ import {
 } from "satellite.js";
 import { externalDataStore, locationStore } from "./externalDataStore";
 
-export function ObserverLocationBox({ selectedIndex }: { selectedIndex: number }) {
+export function SatelliteDetails({ selectedIndex }: { selectedIndex: number }) {
   const observer = useSyncExternalStore(
     locationStore.subscribe,
     locationStore.getSnapshot,
@@ -39,15 +39,17 @@ export function ObserverLocationBox({ selectedIndex }: { selectedIndex: number }
       open={!window.matchMedia("(max-width: 600px), (max-height: 500px)").matches}
       onClick={(event) => event.stopPropagation()}
     >
-      <summary>{metadata ? metadata.OBJECT_NAME : "Observer & satellite details"}</summary>
+      <summary>
+        <span>{metadata ? metadata.OBJECT_NAME : "Satellite details"}</span>
+        <span className="satellite-panel-action" aria-hidden="true">
+          <span className="satellite-panel-minimize">−</span>
+          <span className="satellite-panel-expand">+</span>
+        </span>
+      </summary>
       <div className="location-content">
-        <p>Long: {radiansToDegrees(observer.longitude).toFixed(3)}°</p>
-        <p>Lat: {radiansToDegrees(observer.latitude).toFixed(3)}°</p>
-        <section className="satellite-details" aria-label="Selected satellite">
-          <h2>Selected satellite</h2>
+        <section className="satellite-details" aria-label="Satellite details">
           {metadata && epoch ? (
             <>
-              <p className="satellite-name">{metadata.OBJECT_NAME}</p>
               <dl>
                 <dt>NORAD ID</dt><dd>{metadata.NORAD_CAT_ID}</dd>
                 <dt>Designator</dt><dd>{metadata.OBJECT_ID}</dd>

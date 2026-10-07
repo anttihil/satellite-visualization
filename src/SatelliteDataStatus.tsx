@@ -11,6 +11,7 @@ export function SatelliteDataStatus() {
   const overdue = status.fetchedAt && now - Date.parse(status.fetchedAt) > 4 * 60 * 60 * 1000;
   return (
     <section className="data-status" aria-label="Satellite data status">
+      <h2>Satellite data</h2>
       <p>{status.count ? `${status.count.toLocaleString()} satellites · CelesTrak` : "Loading satellite data…"}</p>
       {status.fetchedAt ? (
         <p>Fetched {new Date(status.fetchedAt).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC")}</p>
