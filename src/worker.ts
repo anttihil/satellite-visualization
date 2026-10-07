@@ -10,8 +10,11 @@ import {
   OBS_ALTITUDE_KM,
   RANGE_SCALE,
   STRIDE_FLOATS,
+  TRAJECTORY_STEP_MS,
+  TRAJECTORY_LIMIT_MS,
+  TRAJECTORY_REFRESH_MS,
 } from "./consts";
-import type { ObserverLocation } from "./externalDataStore";
+import type { ObserverLocation, Trajectory } from "./externalDataStore";
 import { loadSatellites } from "./omm";
 import {
   json2satrec,
@@ -30,12 +33,79 @@ const WORKER_ID = Math.random().toString(10).slice(2, 10);
 let satRecs: SatRec[] = [];
 let headerIntView!: Int32Array;
 let positionsView!: Float32Array;
+let trajectoryIndices: number[] = [];
+let trajectoryRequestId = 0;
+let lastTrajectoryTime = 0;
 
 let observerGd: ObserverLocation = {
   latitude: degreesToRadians(LATITUDE),
   longitude: degreesToRadians(LONGITUDE),
   height: OBS_ALTITUDE_KM,
 };
+
+function calculateTrajectory(index: number, now: number): Trajectory {
+  const sat = satRecs[index];
+  const positionAt = (time: number): [number, number, number] | null => {
+    const date = new Date(time);
+    const eci = propagate(sat, date);
+    if (!eci) return null;
+    const look = ecfToLookAngles(observerGd, eciToEcf(eci.position, gstime(date)));
+    const range = look.rangeSat / RANGE_SCALE;
+    const horizontal = range * Math.cos(look.elevation);
+    return [
+      horizontal * Math.sin(look.azimuth),
+      horizontal * Math.cos(look.azimuth),
+      range * Math.sin(look.elevation),
+    ];
+  };
+  const current = positionAt(now);
+  if (!current || current[2] <= 0) return { index, path: [] };
+
+  const path: Trajectory["path"] = [];
+  for (const direction of [-1, 1]) {
+    const points: Trajectory["path"] = [];
+    let previousTime = now;
+    for (
+      let offset = TRAJECTORY_STEP_MS;
+      offset <= TRAJECTORY_LIMIT_MS;
+      offset += TRAJECTORY_STEP_MS
+    ) {
+      let time = now + direction * offset;
+      const point = positionAt(time);
+      if (!point) break;
+      if (point[2] <= 0) {
+        // Bisect the final sample interval to end the pass at the horizon.
+        let visibleTime = previousTime;
+        for (let step = 0; step < 12; step++) {
+          const middleTime = (visibleTime + time) / 2;
+          const middle = positionAt(middleTime);
+          if (!middle) break;
+          if (middle[2] > 0) visibleTime = middleTime;
+          else time = middleTime;
+        }
+        const horizon = positionAt(visibleTime);
+        if (horizon) points.push(horizon);
+        break;
+      }
+      points.push(point);
+      previousTime = time;
+    }
+    if (direction === -1) path.push(...points.reverse(), current);
+    else path.push(...points);
+  }
+  return { index, path };
+}
+
+function updateTrajectories() {
+  lastTrajectoryTime = Date.now();
+  postMessage({
+    message: "trajectories",
+    requestId: trajectoryRequestId,
+    trajectories: trajectoryIndices.map((index) =>
+      calculateTrajectory(index, lastTrajectoryTime),
+    ),
+  });
+}
 
 function writeSlots(from: number, to: number) {
   const now = new Date();
@@ -77,6 +147,7 @@ onmessage = async (ev) => {
 
       const ommData = await loadSatellites();
       satRecs = ommData.map((item) => json2satrec(item));
+      updateTrajectories();
 
       // One full sweep first, so no slot is left at its initial zero.
       writeSlots(0, satRecs.length);
@@ -95,6 +166,12 @@ onmessage = async (ev) => {
         const from = chunk * sliceSize;
         writeSlots(from, Math.min(from + sliceSize, satRecs.length));
         chunk = (chunk + 1) % CHUNKS;
+        if (
+          trajectoryIndices.length &&
+          Date.now() - lastTrajectoryTime >= TRAJECTORY_REFRESH_MS
+        ) {
+          updateTrajectories();
+        }
       }, FRAME_BUDGET_MS);
 
       break;
@@ -104,6 +181,13 @@ onmessage = async (ev) => {
       observerGd = msg.data as ObserverLocation;
       console.log(`long: ${observerGd.longitude} lat: ${observerGd.latitude}`)
       break; 
+    }
+
+    case "trajectories": {
+      trajectoryIndices = msg.indices;
+      trajectoryRequestId = msg.requestId;
+      if (satRecs.length) updateTrajectories();
+      break;
     }
 
     case "end": {

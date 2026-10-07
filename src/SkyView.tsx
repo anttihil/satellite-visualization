@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 
 import { Deck, FirstPersonView } from "@deck.gl/core";
-import { PolygonLayer, PointCloudLayer } from "@deck.gl/layers";
+import { PolygonLayer, PointCloudLayer, PathLayer } from "@deck.gl/layers";
 import "@deck.gl/widgets/stylesheet.css";
 import { _StatsWidget as StatsWidget } from "@deck.gl/widgets";
 
-import { externalDataStore } from "./externalDataStore";
+import { externalDataStore, type Trajectory } from "./externalDataStore";
 import {
   CONTROLLER,
   DISK_DATA,
@@ -28,6 +28,14 @@ export function SkyView() {
 
   useEffect(() => {
     let fovy = INITIAL_FOVY;
+    let hoveredIndex = -1;
+    let selectedIndex = -1;
+    const updateTrajectories = () => {
+      externalDataStore.setTrajectoryIndices(
+        [hoveredIndex, selectedIndex].filter((index) => index >= 0),
+      );
+      deck.setProps({ layers: createLayers() });
+    };
     const backgroundLayers = [
       new PolygonLayer({
         id: "disk",
@@ -43,12 +51,28 @@ export function SkyView() {
     ];
 
     function createLayers() {
-      const { positions, satIds, omm } = externalDataStore;
+      const { positions, satIds, trajectories } = externalDataStore;
       if (!positions || !satIds.length) {
         return backgroundLayers;
       }
       return [
         ...backgroundLayers,
+        new PathLayer<Trajectory>({
+          id: "satellite-trajectories",
+          data: trajectories,
+          coordinateSystem: "cartesian",
+          getPath: (d) => d.path,
+          getColor: (d) =>
+            d.index === selectedIndex ? [255, 190, 60, 220] : [80, 210, 255, 220],
+          getWidth: 2,
+          widthUnits: "pixels",
+          billboard: true,
+          jointRounded: true,
+          capRounded: true,
+          pickable: false,
+          parameters: { depthWriteEnabled: false },
+          updateTriggers: { getColor: selectedIndex },
+        }),
         new PointCloudLayer({
           id: "satellites",
           coordinateSystem: "cartesian",
@@ -66,10 +90,6 @@ export function SkyView() {
           // The shader adds pointSize before the perspective divide, so a point already
           // shrinks with distance but ignores the field of view. Scale it by hand.
           pointSize: POINT_SIZE * (-(fovy / 25) + 4),
-          onClick: (info) => {
-            if (!info.picked) return;
-            console.log("satellite", omm[info.index].OBJECT_NAME);
-          },
         }),
       ];
     }
@@ -83,8 +103,20 @@ export function SkyView() {
       layers: createLayers(),
       widgets: [new StatsWidget({ type: "deck" })],
       pickingRadius: 25,
+      onHover: (info) => {
+        const index =
+          info.picked && info.layer?.id === "satellites" ? info.index : -1;
+        if (index === hoveredIndex) return;
+        hoveredIndex = index;
+        updateTrajectories();
+      },
+      onClick: (info) => {
+        selectedIndex =
+          info.picked && info.layer?.id === "satellites" ? info.index : -1;
+        updateTrajectories();
+      },
       getTooltip: (info) => {
-        if (!info.picked) return null;
+        if (!info.picked || info.layer?.id !== "satellites") return null;
         const meta = externalDataStore.omm[info.index];
 
         return meta.OBJECT_NAME;
@@ -111,15 +143,20 @@ export function SkyView() {
     let lastRev = -1;
     let lastPositions = externalDataStore.positions;
     let lastSatIds = externalDataStore.satIds;
+    let lastTrajectoryRevision = -1;
     const render = () => {
-      const { headerInts, positions, satIds } = externalDataStore;
+      const { headerInts, positions, satIds, trajectoryRevision } = externalDataStore;
       const rev = headerInts ? Atomics.load(headerInts, HEADER_REV_INDEX) : -1;
 
       // Metadata can arrive after the revision for the worker's first full sweep.
-      if (rev !== lastRev || positions !== lastPositions || satIds !== lastSatIds) {
+      if (
+        rev !== lastRev || positions !== lastPositions || satIds !== lastSatIds ||
+        trajectoryRevision !== lastTrajectoryRevision
+      ) {
         lastRev = rev;
         lastPositions = positions;
         lastSatIds = satIds;
+        lastTrajectoryRevision = trajectoryRevision;
         deck.setProps({ layers: createLayers() });
       }
 
@@ -130,6 +167,7 @@ export function SkyView() {
     return () => {
       cancelAnimationFrame(rafId);
       window.removeEventListener("wheel", onWheel);
+      externalDataStore.setTrajectoryIndices([]);
       deck.finalize();
     };
   }, []);

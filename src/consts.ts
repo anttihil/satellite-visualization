@@ -27,6 +27,9 @@ export const OBS_ALTITUDE_KM = 0.1;
 export const TARGET_FPS = 60;
 export const FRAME_BUDGET_MS = Math.floor(1000 / TARGET_FPS);
 export const RANGE_SCALE = 10;
+export const TRAJECTORY_STEP_MS = 10_000;
+export const TRAJECTORY_LIMIT_MS = 3 * 60 * 60 * 1000;
+export const TRAJECTORY_REFRESH_MS = 30_000;
 
 // Propagating all satellites costs ~14 ms, which does not fit a 16 ms frame.
 // Each frame refreshes one slice instead, so every satellite updates every

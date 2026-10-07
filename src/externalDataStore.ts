@@ -17,6 +17,11 @@ export type ObserverLocation = {
   height: number;
 };
 
+export type Trajectory = {
+  index: number;
+  path: [number, number, number][];
+};
+
 const listeners = new Set<() => void>();
 export const locationStore = {
   location: {
@@ -35,6 +40,11 @@ export const locationStore = {
 
   setLocation: (location: ObserverLocation) => {
     locationStore.location = { ...location };
+    externalDataStore.worker?.postMessage({
+      message: "location", data: locationStore.location,
+    });
+    externalDataStore.trajectories = [];
+    externalDataStore.requestTrajectories();
     listeners.forEach((listener) => listener());
   },
 };
@@ -47,6 +57,28 @@ export const externalDataStore = {
   // Index-aligned with the slots in `positions`, so a picked index maps to an ID.
   satIds: [] as string[],
   worker: null as Worker | null,
+  trajectoryIndices: [] as number[],
+  trajectories: [] as Trajectory[],
+  trajectoryRevision: 0,
+  trajectoryRequestId: 0,
+  setTrajectoryIndices(indices: number[]) {
+    const next = [...new Set(indices)].sort((a, b) => a - b);
+    if (next.join(",") === this.trajectoryIndices.join(",")) return;
+    this.trajectoryIndices = next;
+    this.trajectories = this.trajectories.filter((item) =>
+      next.includes(item.index),
+    );
+    this.requestTrajectories();
+  },
+  requestTrajectories() {
+    this.trajectoryRequestId++;
+    this.trajectoryRevision++;
+    this.worker?.postMessage({
+      message: "trajectories",
+      indices: this.trajectoryIndices,
+      requestId: this.trajectoryRequestId,
+    });
+  },
   init() {
     if (this.worker) this.destroy();
 
@@ -67,6 +99,12 @@ export const externalDataStore = {
 
       const d = ev.data;
       switch (d.message) {
+        case "trajectories": {
+          if (d.requestId !== this.trajectoryRequestId) break;
+          this.trajectories = d.trajectories;
+          this.trajectoryRevision++;
+          break;
+        }
         case "started": {
           this.satIds = d.satIds;
           this.omm = d.omm;
@@ -89,7 +127,6 @@ export const externalDataStore = {
           latitude: degreesToRadians(location.coords.latitude),
           height: (location.coords.altitude ?? 100) / 1000,
         });
-        worker.postMessage({ message: "location", data: locationStore.location });
       },
     );
   },
@@ -102,5 +139,9 @@ export const externalDataStore = {
     this.positions = null;
     this.satIds = [];
     this.omm = [];
+    this.trajectoryIndices = [];
+    this.trajectories = [];
+    this.trajectoryRequestId++;
+    this.trajectoryRevision++;
   },
 };
