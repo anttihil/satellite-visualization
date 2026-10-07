@@ -32,10 +32,20 @@
   background: rgba(47, 79, 79, 0.99);
   width: 300px;
   max-width: calc(100vw - 64px);
-  max-height: calc(100dvh - 64px);
-  overflow-y: auto;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.location summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.location-content {
+  margin-top: 10px;
+  max-height: calc(100dvh - 120px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .satellite-details {
@@ -85,5 +95,19 @@
 .data-status-warning { color: #ffce8a; }
 
 @media (max-width: 600px) {
+  .location {
+    top: max(12px, env(safe-area-inset-top));
+    right: 12px;
+    width: auto;
+    max-width: calc(100vw - 80px);
+    padding: 10px 12px;
+    border-radius: 6px;
+  }
+
+  .location-content { max-height: 35dvh; }
   .data-status { bottom: 82px; left: 16px; right: auto; }
+}
+
+@media (max-height: 500px) {
+  .location-content { max-height: 35dvh; }
 }

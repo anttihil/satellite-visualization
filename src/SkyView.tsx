@@ -33,6 +33,7 @@ export function SkyView() {
     let fovy = INITIAL_FOVY;
     let hoveredIndex = -1;
     let selectedIndex = -1;
+    let touchInput = false;
     let pitch = INITIAL_VIEWSTATE.pitch ?? 0;
     let solarElevation = sunElevation(new Date(), locationStore.location);
     const updateDaylight = () => {
@@ -182,25 +183,71 @@ export function SkyView() {
       widgets: [new StatsWidget({ type: "deck" })],
       pickingRadius: 25,
       onHover: (info) => {
+        if (touchInput) return;
         const index =
           info.picked && info.layer?.id === "satellites" ? info.index : -1;
         if (index === hoveredIndex) return;
         hoveredIndex = index;
         updateTrajectories();
       },
-      onClick: (info) => {
+      onClick: (info, event) => {
+        // Touch selection is handled by native pointer events below. Some mobile
+        // browsers recognize Deck's hover gesture but never emit its click gesture.
+        if (event.pointerType === "touch") return;
         selectedIndex =
           info.picked && info.layer?.id === "satellites" ? info.index : -1;
         setSelectedSatelliteIndex(selectedIndex);
         updateTrajectories();
       },
       getTooltip: (info) => {
+        if (touchInput || window.matchMedia("(hover: none)").matches) return null;
         if (!info.picked || info.layer?.id !== "satellites") return null;
         const meta = externalDataStore.omm[info.index];
 
         return meta.OBJECT_NAME;
       },
     });
+    const skyCanvas = canvas.current!;
+    let touch: { id: number; x: number; y: number; moved: boolean } | null = null;
+    const onPointerDown = (event: PointerEvent) => {
+      touchInput = event.pointerType === "touch";
+      if (event.pointerType !== "touch") return;
+      if (!event.isPrimary) {
+        touch = null;
+        return;
+      }
+      touch = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      touchInput = event.pointerType === "touch";
+      if (touch?.id !== event.pointerId) return;
+      if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > 10) {
+        touch.moved = true;
+      }
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (touch?.id !== event.pointerId) return;
+      const tapped = !touch.moved &&
+        Math.hypot(event.clientX - touch.x, event.clientY - touch.y) <= 10;
+      touch = null;
+      if (!tapped) return;
+      const bounds = skyCanvas.getBoundingClientRect();
+      const info = deck.pickObject({
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+        radius: 25,
+        layerIds: ["satellites"],
+      });
+      selectedIndex = info?.picked ? info.index : -1;
+      hoveredIndex = -1;
+      setSelectedSatelliteIndex(selectedIndex);
+      updateTrajectories();
+    };
+    const onPointerCancel = () => { touch = null; };
+    skyCanvas.addEventListener("pointerdown", onPointerDown);
+    skyCanvas.addEventListener("pointermove", onPointerMove);
+    skyCanvas.addEventListener("pointerup", onPointerUp);
+    skyCanvas.addEventListener("pointercancel", onPointerCancel);
     const refreshDaylight = () => {
       updateDaylight();
       deck.setProps({ layers: createLayers() });
@@ -260,6 +307,10 @@ export function SkyView() {
       unsubscribeLocation();
       window.clearInterval(daylightInterval);
       window.removeEventListener("wheel", onWheel);
+      skyCanvas.removeEventListener("pointerdown", onPointerDown);
+      skyCanvas.removeEventListener("pointermove", onPointerMove);
+      skyCanvas.removeEventListener("pointerup", onPointerUp);
+      skyCanvas.removeEventListener("pointercancel", onPointerCancel);
       externalDataStore.setTrajectoryIndices([]);
       deck.finalize();
     };
@@ -273,7 +324,6 @@ export function SkyView() {
         <span>Horizon 0° · N / E / S / W</span>
       </div>
       <ObserverLocationBox
-        key={selectedSatelliteIndex}
         selectedIndex={selectedSatelliteIndex}
       />
       <SatelliteDataStatus />
