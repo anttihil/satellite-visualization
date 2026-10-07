@@ -23,6 +23,9 @@ export type Trajectory = {
 };
 
 const listeners = new Set<() => void>();
+const EARTH_RADIUS_KM = 6371;
+const LOCATION_MOVEMENT_KM = 0.1;
+const ALTITUDE_MOVEMENT_KM = 0.1;
 export const locationStore = {
   location: {
     longitude: degreesToRadians(LONGITUDE),
@@ -39,7 +42,23 @@ export const locationStore = {
   },
 
   setLocation: (location: ObserverLocation) => {
-    locationStore.location = { ...location };
+    const current = locationStore.location;
+    const haversine =
+      Math.sin((location.latitude - current.latitude) / 2) ** 2 +
+      Math.cos(current.latitude) * Math.cos(location.latitude) *
+      Math.sin((location.longitude - current.longitude) / 2) ** 2;
+    const distance = 2 * EARTH_RADIUS_KM *
+      Math.asin(Math.sqrt(Math.min(1, haversine)));
+    const moved = distance >= LOCATION_MOVEMENT_KM;
+    const altitudeChanged =
+      Math.abs(location.height - current.height) >= ALTITUDE_MOVEMENT_KM;
+    if (!moved && !altitudeChanged) return;
+
+    locationStore.location = {
+      longitude: moved ? location.longitude : current.longitude,
+      latitude: moved ? location.latitude : current.latitude,
+      height: altitudeChanged ? location.height : current.height,
+    };
     externalDataStore.worker?.postMessage({
       message: "location", data: locationStore.location,
     });
@@ -57,6 +76,7 @@ export const externalDataStore = {
   // Index-aligned with the slots in `positions`, so a picked index maps to an ID.
   satIds: [] as string[],
   worker: null as Worker | null,
+  locationInterval: null as number | null,
   trajectoryIndices: [] as number[],
   trajectories: [] as Trajectory[],
   trajectoryRevision: 0,
@@ -117,7 +137,7 @@ export const externalDataStore = {
     worker.postMessage({ message: "start", sab: this.buffer });
     worker.postMessage({ message: "location", data: locationStore.location });
 
-    navigator.geolocation.getCurrentPosition(
+    const updateLocation = () => navigator.geolocation.getCurrentPosition(
       (location) => {
         // Geolocation requests cannot be canceled when an effect is cleaned up.
         if (this.worker !== worker) return;
@@ -125,13 +145,23 @@ export const externalDataStore = {
         locationStore.setLocation({
           longitude: degreesToRadians(location.coords.longitude),
           latitude: degreesToRadians(location.coords.latitude),
-          height: (location.coords.altitude ?? 100) / 1000,
+          height: location.coords.altitude === null
+            ? locationStore.location.height
+            : location.coords.altitude / 1000,
         });
       },
+      () => {},
+      { maximumAge: 0, timeout: 10_000 },
     );
+    updateLocation();
+    this.locationInterval = window.setInterval(updateLocation, 60_000);
   },
 
   destroy() {
+    if (this.locationInterval !== null) {
+      window.clearInterval(this.locationInterval);
+      this.locationInterval = null;
+    }
     this.worker?.terminate();
     this.worker = null;
     this.buffer = null;
