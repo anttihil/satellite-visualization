@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Deck, FirstPersonView } from "@deck.gl/core";
 import { PolygonLayer, PointCloudLayer, PathLayer } from "@deck.gl/layers";
@@ -25,6 +25,7 @@ import { ObserverLocationBox } from "./ObserverLocationBox";
 export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [selectedSatelliteIndex, setSelectedSatelliteIndex] = useState(-1);
 
   useEffect(() => {
     let fovy = INITIAL_FOVY;
@@ -113,6 +114,7 @@ export function SkyView() {
       onClick: (info) => {
         selectedIndex =
           info.picked && info.layer?.id === "satellites" ? info.index : -1;
+        setSelectedSatelliteIndex(selectedIndex);
         updateTrajectories();
       },
       getTooltip: (info) => {
@@ -125,6 +127,7 @@ export function SkyView() {
 
     // Optical zoom: narrow the field of view instead of moving the camera.
     const onWheel = (event: WheelEvent) => {
+      if (event.target instanceof Element && event.target.closest(".location")) return;
       const delta =
         event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE_PIXELS;
       fovy = Math.min(
@@ -175,7 +178,10 @@ export function SkyView() {
   return (
     <div ref={container} className="sky">
       <canvas ref={canvas} />
-      <ObserverLocationBox />
+      <ObserverLocationBox
+        key={selectedSatelliteIndex}
+        selectedIndex={selectedSatelliteIndex}
+      />
     </div>
   );
 }

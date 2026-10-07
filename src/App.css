@@ -6,8 +6,43 @@
 
 .location {
   position: fixed;
-  padding: 5px;
+  padding: 12px;
   right: 20px;
   top: 20px;
-  background: darkslategray
+  background: darkslategray;
+  width: 300px;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.satellite-details {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #ffffff55;
+}
+
+.satellite-details h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.satellite-name {
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+
+.satellite-details dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+
+.satellite-details dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
