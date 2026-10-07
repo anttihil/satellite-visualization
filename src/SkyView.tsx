@@ -22,6 +22,7 @@ import {
 } from "./consts";
 import { SatelliteDetails } from "./SatelliteDetails";
 import { SettingsMenu } from "./SettingsMenu";
+import { OrbitLayer, orbitSegments, type OrbitSegment } from "./OrbitLayer";
 
 export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
@@ -33,6 +34,8 @@ export function SkyView() {
     let hoveredIndex = -1;
     let selectedIndex = -1;
     let touchInput = window.matchMedia("(hover: none)").matches;
+    let lastTrajectories: Trajectory[] | null = null;
+    let segments: OrbitSegment[] = [];
     let pitch = INITIAL_VIEWSTATE.pitch ?? 0;
     let solarElevation = sunElevation(new Date(), locationStore.location);
     const updateDaylight = () => {
@@ -129,22 +132,26 @@ export function SkyView() {
       if (!positions || !satIds.length) {
         return backgroundLayers;
       }
+      // Orbit geometry changes only when the worker returns a new pass, not on
+      // every shared-memory satellite-position update.
+      if (trajectories !== lastTrajectories) {
+        lastTrajectories = trajectories;
+        segments = orbitSegments(trajectories);
+      }
       return [
         ...backgroundLayers,
-        new PathLayer<Trajectory>({
+        new OrbitLayer({
           id: "satellite-trajectories",
-          data: trajectories,
+          data: segments,
           coordinateSystem: "cartesian",
-          getPath: (d) => d.path,
+          getSourcePosition: (d) => d.source,
+          getTargetPosition: (d) => d.target,
           getColor: (d) =>
             d.index === selectedIndex ? [255, 190, 60, 220] : [80, 210, 255, 220],
           getWidth: 2,
           widthUnits: "pixels",
-          billboard: true,
-          jointRounded: true,
-          capRounded: true,
           pickable: false,
-          parameters: { depthWriteEnabled: false },
+          parameters: { depthWriteEnabled: false, depthCompare: "always" },
           updateTriggers: { getColor: selectedIndex },
         }),
         new PointCloudLayer({
