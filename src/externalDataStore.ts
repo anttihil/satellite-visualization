@@ -1,15 +1,13 @@
 import {
-  BYTES_PER_FLOAT,
   HEADER_BYTES,
   HEADER_INTS,
   LATITUDE,
   LONGITUDE,
-  MAX_SATS,
   OBS_ALTITUDE_KM,
-  STRIDE_FLOATS,
 } from "./consts";
 
 import { degreesToRadians, type OMMJsonObject } from "satellite.js";
+import { satelliteDataStatus } from "./satelliteDataStatus";
 
 export type ObserverLocation = {
   longitude: number;
@@ -77,6 +75,8 @@ export const externalDataStore = {
   satIds: [] as string[],
   worker: null as Worker | null,
   locationInterval: null as number | null,
+  dataInterval: null as number | null,
+  visibilityListener: null as (() => void) | null,
   trajectoryIndices: [] as number[],
   trajectories: [] as Trajectory[],
   trajectoryRevision: 0,
@@ -102,13 +102,6 @@ export const externalDataStore = {
   init() {
     if (this.worker) this.destroy();
 
-    const totalBytes =
-      HEADER_BYTES + MAX_SATS * STRIDE_FLOATS * BYTES_PER_FLOAT;
-
-    this.buffer = new SharedArrayBuffer(totalBytes);
-    this.headerInts = new Int32Array(this.buffer, 0, HEADER_INTS);
-    this.positions = new Float32Array(this.buffer, HEADER_BYTES);
-
     const worker = new Worker(new URL("./worker.ts", import.meta.url), {
       type: "module",
     });
@@ -126,15 +119,31 @@ export const externalDataStore = {
           break;
         }
         case "started": {
+          this.buffer = d.sab;
+          this.headerInts = new Int32Array(d.sab, 0, HEADER_INTS);
+          this.positions = new Float32Array(d.sab, HEADER_BYTES);
           this.satIds = d.satIds;
           this.omm = d.omm;
+          this.trajectoryIndices = [];
+          this.trajectories = [];
+          this.trajectoryRequestId++;
+          this.trajectoryRevision++;
+          satelliteDataStatus.update({ fetchedAt: d.fetchedAt, count: d.satIds.length, error: null });
           console.info(`worker ${d.id} started, ${d.satIds.length} satellites`);
+          break;
+        }
+        case "data-status": {
+          satelliteDataStatus.update({
+            error: d.error,
+            ...(d.fetchedAt ? { fetchedAt: d.fetchedAt } : {}),
+            ...(typeof d.refreshSuspended === "boolean" ? { refreshSuspended: d.refreshSuspended } : {}),
+          });
           break;
         }
       }
     };
 
-    worker.postMessage({ message: "start", sab: this.buffer });
+    worker.postMessage({ message: "start" });
     worker.postMessage({ message: "location", data: locationStore.location });
 
     const updateLocation = () => navigator.geolocation.getCurrentPosition(
@@ -155,9 +164,19 @@ export const externalDataStore = {
     );
     updateLocation();
     this.locationInterval = window.setInterval(updateLocation, 60_000);
+    const refreshData = () => {
+      if (document.visibilityState === "visible") worker.postMessage({ message: "refresh" });
+    };
+    this.dataInterval = window.setInterval(refreshData, 15 * 60 * 1000);
+    this.visibilityListener = refreshData;
+    document.addEventListener("visibilitychange", refreshData);
   },
 
   destroy() {
+    if (this.dataInterval !== null) window.clearInterval(this.dataInterval);
+    this.dataInterval = null;
+    if (this.visibilityListener) document.removeEventListener("visibilitychange", this.visibilityListener);
+    this.visibilityListener = null;
     if (this.locationInterval !== null) {
       window.clearInterval(this.locationInterval);
       this.locationInterval = null;

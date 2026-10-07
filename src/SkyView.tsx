@@ -21,6 +21,7 @@ import {
   ZOOM_SPEED,
 } from "./consts";
 import { ObserverLocationBox } from "./ObserverLocationBox";
+import { SatelliteDataStatus } from "./SatelliteDataStatus";
 
 export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
@@ -232,6 +233,11 @@ export function SkyView() {
     const render = () => {
       const { headerInts, positions, satIds, trajectoryRevision } = externalDataStore;
       const rev = headerInts ? Atomics.load(headerInts, HEADER_REV_INDEX) : -1;
+      if (satIds !== lastSatIds) {
+        hoveredIndex = -1;
+        selectedIndex = -1;
+        setSelectedSatelliteIndex(-1);
+      }
 
       // Metadata can arrive after the revision for the worker's first full sweep.
       if (
@@ -270,6 +276,7 @@ export function SkyView() {
         key={selectedSatelliteIndex}
         selectedIndex={selectedSatelliteIndex}
       />
+      <SatelliteDataStatus />
     </div>
   );
 }

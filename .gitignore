@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+.wrangler/
+.dev.vars*
+.env*
+worker-configuration.d.ts

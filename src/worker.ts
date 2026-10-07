@@ -4,6 +4,7 @@ import {
   HEADER_BYTES,
   HEADER_INTS,
   HEADER_REV_INDEX,
+  BYTES_PER_FLOAT,
   HIDDEN,
   LATITUDE,
   LONGITUDE,
@@ -15,7 +16,7 @@ import {
   TRAJECTORY_REFRESH_MS,
 } from "./consts";
 import type { ObserverLocation, Trajectory } from "./externalDataStore";
-import { loadSatellites } from "./omm";
+import { loadSatellites, loadSatelliteMetadata, type SatelliteSnapshot } from "./omm";
 import {
   json2satrec,
   propagate,
@@ -36,6 +37,9 @@ let positionsView!: Float32Array;
 let trajectoryIndices: number[] = [];
 let trajectoryRequestId = 0;
 let lastTrajectoryTime = 0;
+let dataVersion = "";
+let refreshing = false;
+let chunk = 0;
 
 let observerGd: ObserverLocation = {
   latitude: degreesToRadians(LATITUDE),
@@ -101,7 +105,7 @@ function updateTrajectories() {
   postMessage({
     message: "trajectories",
     requestId: trajectoryRequestId,
-    trajectories: trajectoryIndices.map((index) =>
+    trajectories: trajectoryIndices.filter((index) => index < satRecs.length).map((index) =>
       calculateTrajectory(index, lastTrajectoryTime),
     ),
   });
@@ -137,43 +141,67 @@ function writeSlots(from: number, to: number) {
 
 let intervalId: NodeJS.Timeout | null = null;
 
+function applySnapshot(snapshot: SatelliteSnapshot) {
+  const records = snapshot.data.map((item) => json2satrec(item));
+  if (intervalId) clearInterval(intervalId);
+  // Build a complete new buffer before publishing it together with its metadata.
+  // The main thread continues rendering the old snapshot until this message arrives.
+  const buffer = new SharedArrayBuffer(HEADER_BYTES + records.length * STRIDE_FLOATS * BYTES_PER_FLOAT);
+  headerIntView = new Int32Array(buffer, 0, HEADER_INTS);
+  positionsView = new Float32Array(buffer, HEADER_BYTES);
+  satRecs = records;
+  dataVersion = snapshot.version;
+  trajectoryIndices = [];
+  chunk = 0;
+  writeSlots(0, satRecs.length);
+  postMessage({
+    id: WORKER_ID,
+    message: "started",
+    sab: buffer,
+    satIds: satRecs.map((sat) => sat.satnum),
+    omm: snapshot.data,
+    fetchedAt: snapshot.fetchedAt,
+  });
+  const sliceSize = Math.ceil(satRecs.length / CHUNKS);
+  intervalId = setInterval(() => {
+    const from = chunk * sliceSize;
+    writeSlots(from, Math.min(from + sliceSize, satRecs.length));
+    chunk = (chunk + 1) % CHUNKS;
+    if (trajectoryIndices.length && Date.now() - lastTrajectoryTime >= TRAJECTORY_REFRESH_MS) updateTrajectories();
+  }, FRAME_BUDGET_MS);
+}
+
+async function refreshData() {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const metadata = await loadSatelliteMetadata();
+    if (!dataVersion || (metadata && metadata.version !== dataVersion)) {
+      applySnapshot(await loadSatellites());
+    }
+    // Update even when the contents are unchanged but a later fetch succeeded.
+    postMessage({ message: "data-status", error: null, ...(metadata ? { refreshSuspended: metadata.refreshSuspended, ...(metadata.version === dataVersion ? { fetchedAt: metadata.fetchedAt } : {}) } : {}) });
+  } catch (error) {
+    if (!satRecs.length) {
+      try { applySnapshot(await loadSatellites(true)); }
+      catch { /* Report the initial error below if even the bundled copy fails. */ }
+    }
+    postMessage({ message: "data-status", error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    refreshing = false;
+  }
+}
+
 onmessage = async (ev) => {
   const msg = ev.data;
 
   switch (msg.message) {
     case "start": {
-      headerIntView = new Int32Array(msg.sab, 0, HEADER_INTS);
-      positionsView = new Float32Array(msg.sab, HEADER_BYTES);
-
-      const ommData = await loadSatellites();
-      satRecs = ommData.map((item) => json2satrec(item));
-      updateTrajectories();
-
-      // One full sweep first, so no slot is left at its initial zero.
-      writeSlots(0, satRecs.length);
-
-      postMessage({
-        id: WORKER_ID,
-        message: "started",
-        satIds: satRecs.map((sat) => sat.satnum),
-        omm: ommData
-      });
-
-      const sliceSize = Math.ceil(satRecs.length / CHUNKS);
-      let chunk = 0;
-
-      intervalId = setInterval(() => {
-        const from = chunk * sliceSize;
-        writeSlots(from, Math.min(from + sliceSize, satRecs.length));
-        chunk = (chunk + 1) % CHUNKS;
-        if (
-          trajectoryIndices.length &&
-          Date.now() - lastTrajectoryTime >= TRAJECTORY_REFRESH_MS
-        ) {
-          updateTrajectories();
-        }
-      }, FRAME_BUDGET_MS);
-
+      await refreshData();
+      break;
+    }
+    case "refresh": {
+      await refreshData();
       break;
     }
 

@@ -28,7 +28,8 @@
   padding: 12px;
   right: 20px;
   top: 20px;
-  background: darkslategray;
+  /* Avoid Chromium software-renderer occlusion artifacts on the WebGL canvas. */
+  background: rgba(47, 79, 79, 0.99);
   width: 300px;
   max-width: calc(100vw - 64px);
   max-height: calc(100dvh - 64px);
@@ -64,4 +65,25 @@
   margin: 0;
   text-align: right;
   overflow-wrap: anywhere;
+}
+
+.data-status {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  max-width: calc(100vw - 56px);
+  padding: 9px 12px;
+  border: 1px solid #6f999b33;
+  border-radius: 6px;
+  background: #071013cc;
+  color: #9bb4ba;
+  font-size: 11px;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+.data-status-warning { color: #ffce8a; }
+
+@media (max-width: 600px) {
+  .data-status { bottom: 82px; left: 16px; right: auto; }
 }
