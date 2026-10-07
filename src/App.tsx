@@ -1,11 +1,15 @@
 import "./App.css";
 
+import { useEffect } from "react";
 import { SkyView } from "./SkyView";
 import { externalDataStore } from "./externalDataStore";
 
-externalDataStore.init();
-
 function App() {
+  useEffect(() => {
+    externalDataStore.init();
+    return () => externalDataStore.destroy();
+  }, []);
+
   return <SkyView />;
 }
 

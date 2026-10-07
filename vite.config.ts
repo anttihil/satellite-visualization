@@ -14,6 +14,7 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] })
   ],
+  worker: { format: 'es' },
   server: { headers: crossOriginIsolation },
   preview: { headers: crossOriginIsolation },
 })

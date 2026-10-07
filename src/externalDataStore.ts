@@ -2,41 +2,41 @@ import {
   BYTES_PER_FLOAT,
   HEADER_BYTES,
   HEADER_INTS,
+  LATITUDE,
+  LONGITUDE,
   MAX_SATS,
+  OBS_ALTITUDE_KM,
   STRIDE_FLOATS,
 } from "./consts";
 
 import { degreesToRadians, type OMMJsonObject } from "satellite.js";
 
 export type ObserverLocation = {
-  longitude: number,
-  latitude: number,
-  height: number
-}
+  longitude: number;
+  latitude: number;
+  height: number;
+};
 
-
-const listeners = new Set()
+const listeners = new Set<() => void>();
 export const locationStore = {
   location: {
-    longitude: 0,
-    latitude: 0,
-    height: 100,
+    longitude: degreesToRadians(LONGITUDE),
+    latitude: degreesToRadians(LATITUDE),
+    height: OBS_ALTITUDE_KM,
   } as ObserverLocation,
-  // Snapshot getter: Returns the current object reference
   getSnapshot: () => locationStore.location,
 
-  // Subscribe function: React will provide a callback to trigger on updates
-  subscribe: (listener:any) => {
+  subscribe: (listener: () => void) => {
     listeners.add(listener);
-    return () => listeners.delete(listener); // Cleanup when unmounted
+    return () => {
+      listeners.delete(listener);
+    };
   },
 
-  // State updater: Updates object and notifies listeners
   setLocation: (location: ObserverLocation) => {
-    // Immutable update: create a new reference so React detects the change
-    locationStore.location = { ...locationStore.location, ...location };
-    listeners.forEach((listener: any) => listener());
-  }
+    locationStore.location = { ...location };
+    listeners.forEach((listener) => listener());
+  },
 };
 
 export const externalDataStore = {
@@ -50,8 +50,6 @@ export const externalDataStore = {
   init() {
     if (this.worker) this.destroy();
 
-    this.promptLocation()
-
     const totalBytes =
       HEADER_BYTES + MAX_SATS * STRIDE_FLOATS * BYTES_PER_FLOAT;
 
@@ -59,50 +57,50 @@ export const externalDataStore = {
     this.headerInts = new Int32Array(this.buffer, 0, HEADER_INTS);
     this.positions = new Float32Array(this.buffer, HEADER_BYTES);
 
-    this.worker = new Worker(new URL("./worker.ts", import.meta.url), {
+    const worker = new Worker(new URL("./worker.ts", import.meta.url), {
       type: "module",
     });
+    this.worker = worker;
 
-    this.worker.onmessage = (ev) => {
+    worker.onmessage = (ev) => {
+      if (this.worker !== worker) return;
+
       const d = ev.data;
       switch (d.message) {
         case "started": {
-          externalDataStore.satIds = d.satIds;
-          externalDataStore.omm = d.omm;
+          this.satIds = d.satIds;
+          this.omm = d.omm;
           console.info(`worker ${d.id} started, ${d.satIds.length} satellites`);
-          break;
-        }
-        case "ended": {
-          console.info(`worker ${d.id} ended`);
-          this.worker?.terminate();
           break;
         }
       }
     };
 
-    this.worker.postMessage({ message: "start", sab: this.buffer });
-  },
+    worker.postMessage({ message: "start", sab: this.buffer });
+    worker.postMessage({ message: "location", data: locationStore.location });
 
-  promptLocation() {
     navigator.geolocation.getCurrentPosition(
       (location) => {
+        // Geolocation requests cannot be canceled when an effect is cleaned up.
+        if (this.worker !== worker) return;
+
         locationStore.setLocation({
           longitude: degreesToRadians(location.coords.longitude),
           latitude: degreesToRadians(location.coords.latitude),
-          height: (location.coords.altitude ?? 100) / 1000
-        })
-        if (this.worker){
-          this.worker.postMessage({message: 'location', data: locationStore.location})
-        }
-      }
-    )
+          height: (location.coords.altitude ?? 100) / 1000,
+        });
+        worker.postMessage({ message: "location", data: locationStore.location });
+      },
+    );
   },
 
   destroy() {
-    if (this.worker) {
-      this.worker.postMessage({ message: "end" });
-    }
+    this.worker?.terminate();
+    this.worker = null;
+    this.buffer = null;
+    this.headerInts = null;
     this.positions = null;
     this.satIds = [];
+    this.omm = [];
   },
 };
