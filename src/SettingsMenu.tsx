@@ -2,8 +2,13 @@ import { useRef, useState, useSyncExternalStore } from "react";
 import { radiansToDegrees } from "satellite.js";
 import { locationStore } from "./externalDataStore";
 import { SatelliteDataStatus } from "./SatelliteDataStatus";
+import type { OrientationStatus } from "./phoneOrientation";
 
-export function SettingsMenu() {
+export function SettingsMenu({ orientationEnabled, orientationStatus, onOrientationChange }: {
+  orientationEnabled: boolean;
+  orientationStatus: OrientationStatus;
+  onOrientationChange: (enabled: boolean) => void;
+}) {
   const observer = useSyncExternalStore(locationStore.subscribe, locationStore.getSnapshot);
   const panel = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -48,6 +53,16 @@ export function SettingsMenu() {
           </button>
         </header>
         <div className="settings-content">
+          <section className="orientation-settings" aria-label="Phone orientation">
+            <h2>View direction</h2>
+            <label><input type="checkbox" checked={orientationEnabled} onChange={(event) => onOrientationChange(event.target.checked)} /> Use phone orientation</label>
+            <p role="status">{orientationStatus.mode === "disabled" ? "Phone orientation is off." :
+              orientationStatus.mode === "permission" ? "Tap the navigation button to allow motion access." :
+              orientationStatus.mode === "denied" ? "Motion access was denied. Allow it in browser settings, then try again." :
+              orientationStatus.mode === "unavailable" ? "No orientation readings. Use a phone with motion sensors over HTTPS." :
+              orientationStatus.mode === "waiting" ? "Waiting for sensor readings…" :
+              `${orientationStatus.absolute ? "Compass-aligned" : "Relative"} orientation. Drag to look around manually; tap the crosshair to follow your phone again.`}</p>
+          </section>
           <section aria-label="Observer location">
             <h2>Observer location</h2>
             <p>Longitude: {radiansToDegrees(observer.longitude).toFixed(3)}°</p>

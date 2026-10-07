@@ -13,7 +13,7 @@
     "cf:types": "wrangler types",
     "check:worker": "wrangler types && tsc -p tsconfig.worker.json",
     "seed:data": "node scripts/seed-data.ts",
-    "test": "node --test cloudflare/refresh.test.ts"
+    "test": "node --test cloudflare/refresh.test.ts tests/phoneOrientation.test.ts"
   },
   "dependencies": {
     "@deck.gl/core": "^9.4.0",

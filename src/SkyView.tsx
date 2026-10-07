@@ -23,11 +23,16 @@ import {
 import { SatelliteDetails } from "./SatelliteDetails";
 import { SettingsMenu } from "./SettingsMenu";
 import { OrbitLayer, orbitSegments, type OrbitSegment } from "./OrbitLayer";
+import { PhoneOrientation, angleDifference, type OrientationStatus } from "./phoneOrientation";
+import { OrientationButton } from "./OrientationButton";
 
 export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [selectedSatelliteIndex, setSelectedSatelliteIndex] = useState(-1);
+  const [orientationEnabled, setOrientationEnabled] = useState(true);
+  const [orientationStatus, setOrientationStatus] = useState<OrientationStatus>({ mode: "waiting", absolute: false });
+  const orientation = useRef<PhoneOrientation | null>(null);
 
   useEffect(() => {
     let fovy = INITIAL_FOVY;
@@ -37,6 +42,7 @@ export function SkyView() {
     let lastTrajectories: Trajectory[] | null = null;
     let segments: OrbitSegment[] = [];
     let pitch = INITIAL_VIEWSTATE.pitch ?? 0;
+    let camera = { ...INITIAL_VIEWSTATE, bearing: INITIAL_VIEWSTATE.bearing ?? 0 };
     let solarElevation = sunElevation(new Date(), locationStore.location);
     const updateDaylight = () => {
       solarElevation = sunElevation(new Date(), locationStore.location);
@@ -184,11 +190,16 @@ export function SkyView() {
       parent: container.current,
       canvas: canvas.current,
       views: new FirstPersonView({ far: FAR, fovy }),
-      initialViewState: INITIAL_VIEWSTATE,
+      viewState: camera,
       controller: CONTROLLER,
       layers: createLayers(),
-      onViewStateChange: ({ viewState }) => {
-        const nextPitch = (viewState as typeof INITIAL_VIEWSTATE).pitch ?? 0;
+      onViewStateChange: ({ viewState, interactionState }) => {
+        if (interactionState.isDragging) orientation.current?.manual();
+        // A return-to-sensor tap can happen before drag inertia has finished.
+        if (orientation.current?.status.mode === "tracking") return null;
+        camera = { ...camera, ...viewState as typeof INITIAL_VIEWSTATE, bearing: (viewState as typeof INITIAL_VIEWSTATE).bearing ?? camera.bearing };
+        deck.setProps({ viewState: camera });
+        const nextPitch = camera.pitch ?? 0;
         if ((pitch > 40) !== (nextPitch > 40)) {
           pitch = nextPitch;
           deck.setProps({ layers: createLayers() });
@@ -218,6 +229,8 @@ export function SkyView() {
         return meta.OBJECT_NAME;
       },
     });
+    const sensor = new PhoneOrientation(setOrientationStatus, () => ({ bearing: camera.bearing, pitch: camera.pitch ?? 0 }));
+    orientation.current = sensor;
     const skyCanvas = canvas.current!;
     let touch: { id: number; x: number; y: number; moved: boolean } | null = null;
     const onPointerDown = (event: PointerEvent) => {
@@ -291,7 +304,22 @@ export function SkyView() {
     let lastPositions = externalDataStore.positions;
     let lastSatIds = externalDataStore.satIds;
     let lastTrajectoryRevision = -1;
+    let lastFrame = performance.now();
     const render = () => {
+      const now = performance.now();
+      const direction = sensor.direction();
+      if (direction) {
+        const blend = 1 - Math.exp(-Math.min(now - lastFrame, 100) / 80);
+        const bearing = camera.bearing + angleDifference(direction.bearing, camera.bearing) * blend;
+        const nextPitch = (camera.pitch ?? 0) + (direction.pitch - (camera.pitch ?? 0)) * blend;
+        camera = { ...camera, bearing, pitch: nextPitch, transitionDuration: 0 };
+        deck.setProps({ viewState: camera });
+        if ((pitch > 40) !== (nextPitch > 40)) {
+          pitch = nextPitch;
+          deck.setProps({ layers: createLayers() });
+        }
+      }
+      lastFrame = now;
       const { headerInts, positions, satIds, trajectoryRevision } = externalDataStore;
       const rev = headerInts ? Atomics.load(headerInts, HEADER_REV_INDEX) : -1;
       if (satIds !== lastSatIds) {
@@ -317,6 +345,8 @@ export function SkyView() {
     render();
 
     return () => {
+      sensor.dispose();
+      orientation.current = null;
       cancelAnimationFrame(rafId);
       unsubscribeLocation();
       window.clearInterval(daylightInterval);
@@ -333,7 +363,11 @@ export function SkyView() {
   return (
     <div ref={container} className="sky">
       <canvas ref={canvas} />
-      <SettingsMenu />
+      <SettingsMenu orientationEnabled={orientationEnabled} orientationStatus={orientationStatus} onOrientationChange={(enabled) => {
+        setOrientationEnabled(enabled);
+        orientation.current?.setEnabled(enabled);
+      }} />
+      <OrientationButton status={orientationStatus} onClick={() => orientation.current?.resume()} />
       {selectedSatelliteIndex >= 0 && <SatelliteDetails selectedIndex={selectedSatelliteIndex} />}
     </div>
   );

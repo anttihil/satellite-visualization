@@ -5,6 +5,7 @@
 }
 
 .settings-toggle,
+.orientation-button,
 .settings-close {
   display: grid;
   place-items: center;
@@ -25,15 +26,35 @@
 }
 
 .settings-toggle:hover,
+.orientation-button:hover,
 .settings-close:hover {
   background: #193035;
 }
 
 .settings-toggle:focus-visible,
+.orientation-button:focus-visible,
 .settings-close:focus-visible {
   outline: 2px solid #7ed3d1;
   outline-offset: 3px;
 }
+
+.orientation-button {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  border-radius: 50%;
+  z-index: 1;
+}
+
+.orientation-button[data-mode="tracking"] { color: #7ed3d1; border-color: #7ed3d1; }
+.orientation-button[data-mode="unavailable"],
+.orientation-button:disabled { color: #748b90; }
+.orientation-button:disabled { cursor: default; }
+.orientation-settings { margin-bottom: 24px; }
+.orientation-settings label { display: flex; align-items: center; gap: 8px; }
+.orientation-settings input { accent-color: #7ed3d1; width: 18px; height: 18px; }
+.orientation-settings p { color: #9bb4ba; }
 
 .settings {
   position: fixed;
@@ -99,7 +120,7 @@
   position: fixed;
   padding: 12px;
   right: 20px;
-  bottom: 20px;
+  bottom: 76px;
   /* Avoid Chromium software-renderer occlusion artifacts on the WebGL canvas. */
   background: rgba(47, 79, 79, 0.99);
   width: 300px;
@@ -176,7 +197,7 @@
 
 @media (max-width: 600px) {
   .location {
-    bottom: max(12px, env(safe-area-inset-bottom));
+    bottom: calc(max(16px, env(safe-area-inset-bottom)) + 56px);
     right: 12px;
     width: auto;
     max-width: calc(100vw - 80px);
