@@ -291,7 +291,7 @@ export function SkyView() {
 
     // Optical zoom: narrow the field of view instead of moving the camera.
     const onWheel = (event: WheelEvent) => {
-      if (event.target instanceof Element && event.target.closest(".location, .settings, .settings-toggle")) return;
+      if (event.target instanceof Element && event.target.closest(".location, .settings, .settings-toggle, .location-picker")) return;
       const delta =
         event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE_PIXELS;
       fovy = Math.min(

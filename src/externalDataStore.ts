@@ -8,6 +8,7 @@ import {
 
 import { degreesToRadians, type OMMJsonObject } from "satellite.js";
 import { satelliteDataStatus } from "./satelliteDataStatus";
+import { locationSettings } from "./locationSettings";
 
 export type ObserverLocation = {
   longitude: number;
@@ -25,7 +26,7 @@ const EARTH_RADIUS_KM = 6371;
 const LOCATION_MOVEMENT_KM = 0.1;
 const ALTITUDE_MOVEMENT_KM = 0.1;
 export const locationStore = {
-  location: {
+  location: (!locationSettings.getSnapshot().automatic ? locationSettings.getSnapshot().manual : null) ?? {
     longitude: degreesToRadians(LONGITUDE),
     latitude: degreesToRadians(LATITUDE),
     height: OBS_ALTITUDE_KM,
@@ -39,7 +40,12 @@ export const locationStore = {
     };
   },
 
-  setLocation: (location: ObserverLocation) => {
+  setManualLocation: (location: ObserverLocation) => {
+    if (locationSettings.getSnapshot().automatic) return;
+    locationSettings.update({ manual: location });
+    locationStore.setLocation(location, true);
+  },
+  setLocation: (location: ObserverLocation, exact = false) => {
     const current = locationStore.location;
     const haversine =
       Math.sin((location.latitude - current.latitude) / 2) ** 2 +
@@ -47,9 +53,9 @@ export const locationStore = {
       Math.sin((location.longitude - current.longitude) / 2) ** 2;
     const distance = 2 * EARTH_RADIUS_KM *
       Math.asin(Math.sqrt(Math.min(1, haversine)));
-    const moved = distance >= LOCATION_MOVEMENT_KM;
+    const moved = exact || distance >= LOCATION_MOVEMENT_KM;
     const altitudeChanged =
-      Math.abs(location.height - current.height) >= ALTITUDE_MOVEMENT_KM;
+      exact || Math.abs(location.height - current.height) >= ALTITUDE_MOVEMENT_KM;
     if (!moved && !altitudeChanged) return;
 
     locationStore.location = {
@@ -75,6 +81,8 @@ export const externalDataStore = {
   satIds: [] as string[],
   worker: null as Worker | null,
   locationInterval: null as number | null,
+  locationUnsubscribe: null as (() => void) | null,
+  locationGeneration: 0,
   dataInterval: null as number | null,
   visibilityListener: null as (() => void) | null,
   trajectoryIndices: [] as number[],
@@ -146,24 +154,50 @@ export const externalDataStore = {
     worker.postMessage({ message: "start" });
     worker.postMessage({ message: "location", data: locationStore.location });
 
-    const updateLocation = () => navigator.geolocation.getCurrentPosition(
-      (location) => {
-        // Geolocation requests cannot be canceled when an effect is cleaned up.
-        if (this.worker !== worker) return;
+    let automatic: boolean | undefined;
+    const syncLocationMode = () => {
+      const enabled = locationSettings.getSnapshot().automatic;
+      if (enabled === automatic) return;
+      automatic = enabled;
+      const generation = ++this.locationGeneration;
+      if (this.locationInterval !== null) window.clearInterval(this.locationInterval);
+      this.locationInterval = null;
+      if (!enabled) {
+        locationSettings.update({ manual: locationStore.location, status: "Using a manual location." });
+        return;
+      }
+      locationSettings.update({ status: "Finding your location…" });
+      if (!navigator.geolocation) {
+        locationSettings.update({ status: "Device location is unavailable. Turn off device location to choose manually." });
+        return;
+      }
+      const updateLocation = () => navigator.geolocation.getCurrentPosition(
+        (location) => {
+          // Pending requests cannot be canceled; ignore fixes from an old mode or worker.
+          if (this.worker !== worker || this.locationGeneration !== generation) return;
 
-        locationStore.setLocation({
-          longitude: degreesToRadians(location.coords.longitude),
-          latitude: degreesToRadians(location.coords.latitude),
-          height: location.coords.altitude === null
-            ? locationStore.location.height
-            : location.coords.altitude / 1000,
-        });
-      },
-      () => {},
-      { maximumAge: 0, timeout: 10_000 },
-    );
-    updateLocation();
-    this.locationInterval = window.setInterval(updateLocation, 60_000);
+          locationStore.setLocation({
+            longitude: degreesToRadians(location.coords.longitude),
+            latitude: degreesToRadians(location.coords.latitude),
+            height: location.coords.altitude === null
+              ? locationStore.location.height
+              : location.coords.altitude / 1000,
+          });
+          locationSettings.update({ status: "Location updates automatically." });
+        },
+        (error) => {
+          if (this.worker !== worker || this.locationGeneration !== generation) return;
+          locationSettings.update({ status: error.code === 1
+            ? "Location access was denied. Allow it in browser settings, or turn off device location to choose manually."
+            : "Could not find your location. Keeping the current position; turn off device location to choose manually." });
+        },
+        { maximumAge: 0, timeout: 10_000 },
+      );
+      updateLocation();
+      this.locationInterval = window.setInterval(updateLocation, 60_000);
+    };
+    this.locationUnsubscribe = locationSettings.subscribe(syncLocationMode);
+    syncLocationMode();
     const refreshData = () => {
       if (document.visibilityState === "visible") worker.postMessage({ message: "refresh" });
     };
@@ -173,6 +207,9 @@ export const externalDataStore = {
   },
 
   destroy() {
+    this.locationGeneration++;
+    this.locationUnsubscribe?.();
+    this.locationUnsubscribe = null;
     if (this.dataInterval !== null) window.clearInterval(this.dataInterval);
     this.dataInterval = null;
     if (this.visibilityListener) document.removeEventListener("visibilitychange", this.visibilityListener);

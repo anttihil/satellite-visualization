@@ -3,6 +3,8 @@ import { radiansToDegrees } from "satellite.js";
 import { locationStore } from "./externalDataStore";
 import { SatelliteDataStatus } from "./SatelliteDataStatus";
 import type { OrientationStatus } from "./phoneOrientation";
+import { locationSettings } from "./locationSettings";
+import { LocationPicker } from "./LocationPicker";
 
 export function SettingsMenu({ orientationEnabled, orientationStatus, onOrientationChange }: {
   orientationEnabled: boolean;
@@ -10,6 +12,8 @@ export function SettingsMenu({ orientationEnabled, orientationStatus, onOrientat
   onOrientationChange: (enabled: boolean) => void;
 }) {
   const observer = useSyncExternalStore(locationStore.subscribe, locationStore.getSnapshot);
+  const locationPreferences = useSyncExternalStore(locationSettings.subscribe, locationSettings.getSnapshot);
+  const [choosingLocation, setChoosingLocation] = useState(false);
   const panel = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
 
@@ -63,14 +67,22 @@ export function SettingsMenu({ orientationEnabled, orientationStatus, onOrientat
               orientationStatus.mode === "waiting" ? "Waiting for sensor readings…" :
               `${orientationStatus.absolute ? "Compass-aligned" : "Relative"} orientation. Drag to look around manually. Phone tracking resumes after 3 seconds of inactivity; tap the crosshair to return sooner.`}</p>
           </section>
-          <section aria-label="Observer location">
+          <section className="observer-settings" aria-label="Observer location">
             <h2>Observer location</h2>
+            <label className="location-auto-toggle"><input type="checkbox" role="switch" checked={locationPreferences.automatic}
+              onChange={(event) => locationSettings.update({ automatic: event.target.checked })} /> Use device location</label>
+            <p role="status">{locationPreferences.status}</p>
             <p>Longitude: {radiansToDegrees(observer.longitude).toFixed(3)}°</p>
             <p>Latitude: {radiansToDegrees(observer.latitude).toFixed(3)}°</p>
+            <button className="location-action" disabled={locationPreferences.automatic}
+              aria-describedby={locationPreferences.automatic ? "manual-location-help" : undefined}
+              onClick={() => setChoosingLocation(true)}>Choose location…</button>
+            {locationPreferences.automatic && <p id="manual-location-help">Turn off device location to choose manually.</p>}
           </section>
           <SatelliteDataStatus />
         </div>
       </dialog>
+      {choosingLocation && <LocationPicker observer={observer} onClose={() => setChoosingLocation(false)} />}
     </>
   );
 }
