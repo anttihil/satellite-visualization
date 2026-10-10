@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
-import { Deck, FirstPersonView } from "@deck.gl/core";
-import { PolygonLayer, PointCloudLayer, PathLayer, TextLayer } from "@deck.gl/layers";
+import { Deck } from "@deck.gl/core";
+import { TextLayer } from "@deck.gl/layers";
 import "@deck.gl/widgets/stylesheet.css";
 import { _StatsWidget as StatsWidget } from "@deck.gl/widgets";
 
 import { externalDataStore, locationStore, type Trajectory } from "./externalDataStore";
-import { CompassLabelExtension, compass, groundBands, groundDirections, horizon, sunElevation } from "./earthReference";
+import { compass, groundBands, groundDirections, horizon, sunElevation } from "./earthReference";
+import { StereographicExtension, StereographicView } from "./stereographic";
+import { SkyGroundLayer, SkyLabelLayer, SkyPathLayer, SkySatelliteLayer } from "./SkyLayers";
 import {
   CONTROLLER,
   FAR,
@@ -35,6 +37,7 @@ export function SkyView() {
   const orientation = useRef<PhoneOrientation | null>(null);
 
   useEffect(() => {
+    const projection = new StereographicExtension();
     let fovy = INITIAL_FOVY;
     let hoveredIndex = -1;
     let selectedIndex = -1;
@@ -69,10 +72,10 @@ export function SkyView() {
         92 + daylightAmount * 50 + twilightAmount * 15,
       ];
       const backgroundLayers = [
-        new PolygonLayer<(typeof groundBands)[number]>({
+        new SkyGroundLayer<(typeof groundBands)[number]>({
           id: "earth-ground",
           data: groundBands,
-          stroked: false,
+          extensions: [projection],
           getPolygon: (d) => d.polygon,
           coordinateSystem: "cartesian",
           getFillColor: (d) => d.glow
@@ -86,8 +89,9 @@ export function SkyView() {
           parameters: { depthWriteEnabled: false, depthCompare: "always" },
           updateTriggers: { getFillColor: solarElevation },
         }),
-        new PathLayer({
+        new SkyPathLayer({
           id: "ground-directions",
+          extensions: [projection],
           data: groundDirections.filter((d) => d.cardinal || pitch > 40),
           coordinateSystem: "cartesian",
           getPath: (d) => d.path,
@@ -97,8 +101,9 @@ export function SkyView() {
           billboard: true,
           parameters: { depthWriteEnabled: false },
         }),
-        new PathLayer({
+        new SkyPathLayer({
           id: "horizon",
+          extensions: [projection],
           data: [{ path: horizon }],
           coordinateSystem: "cartesian",
           getPath: (d) => d.path,
@@ -108,8 +113,9 @@ export function SkyView() {
           billboard: true,
           parameters: { depthWriteEnabled: false },
         }),
-        new PathLayer<(typeof compass)[number]>({
+        new SkyPathLayer<(typeof compass)[number]>({
           id: "compass-ticks",
+          extensions: [projection],
           data: compass.filter((d) => d.cardinal || fovy < 55 || d.degrees % 30 === 0),
           coordinateSystem: "cartesian",
           getPath: (d) => d.path,
@@ -129,7 +135,8 @@ export function SkyView() {
           getColor: (d) => d.degrees === 0 ? [126, 211, 209, 255] : [155, 180, 187, 230],
           fontFamily: "monospace",
           characterSet: "auto",
-          extensions: [new CompassLabelExtension()],
+          extensions: [projection],
+          _subLayerProps: { characters: { type: SkyLabelLayer } },
           billboard: true,
           parameters: { depthWriteEnabled: false },
         }),
@@ -148,6 +155,7 @@ export function SkyView() {
         ...backgroundLayers,
         new OrbitLayer({
           id: "satellite-trajectories",
+          extensions: [projection],
           data: segments,
           coordinateSystem: "cartesian",
           getSourcePosition: (d) => d.source,
@@ -160,8 +168,9 @@ export function SkyView() {
           parameters: { depthWriteEnabled: false, depthCompare: "always" },
           updateTriggers: { getColor: selectedIndex },
         }),
-        new PointCloudLayer({
+        new SkySatelliteLayer({
           id: "satellites",
+          extensions: [projection],
           coordinateSystem: "cartesian",
           pickable: true,
           // A fresh descriptor uploads changed shared memory without copying the typed array.
@@ -179,8 +188,8 @@ export function SkyView() {
           getColor: (_, { index }) =>
             index === selectedIndex ? [80, 210, 255, 255] : [255, 255, 255, 255],
           updateTriggers: { getColor: selectedIndex },
-          // The shader adds pointSize before the perspective divide, so a point already
-          // shrinks with distance but ignores the field of view. Scale it by hand.
+          // Explicit range-dependent pixel radius, bounded in SkySatelliteLayer.
+          // Keep the familiar zoom multiplier without off-axis size inflation.
           pointSize: POINT_SIZE * (-(fovy / 25) + 4),
         }),
       ];
@@ -189,7 +198,7 @@ export function SkyView() {
     const deck = new Deck({
       parent: container.current,
       canvas: canvas.current,
-      views: new FirstPersonView({ far: FAR, fovy }),
+      views: new StereographicView({ far: FAR, fovy }),
       viewState: camera,
       controller: CONTROLLER,
       layers: createLayers(),
@@ -299,7 +308,7 @@ export function SkyView() {
         MAX_FOVY,
       );
       deck.setProps({
-        views: new FirstPersonView({ far: FAR, fovy }),
+        views: new StereographicView({ far: FAR, fovy }),
         layers: createLayers(),
       });
     };

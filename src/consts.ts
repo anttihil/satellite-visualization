@@ -52,8 +52,8 @@ export const INITIAL_VIEWSTATE: FirstPersonViewState = {
 export const FAR = 2000;
 export const INITIAL_FOVY = 75;
 export const MIN_FOVY = 2;
-// The projection is rectilinear, so it stretches the edges of the frame by 1/cos(angle
-// from the axis) or more. At 75 degrees the top edge stretches 1.55x, at 100 it is 2.32x.
+// Stereographic vertical coverage; extreme aspect ratios additionally cap the
+// diagonal angular coverage to keep the rear-pole singularity off screen.
 export const MAX_FOVY = INITIAL_FOVY;
 // Firefox reports wheel deltas in lines, Chrome in pixels. One notch is 3 lines or 100 pixels.
 export const WHEEL_LINE_PIXELS = 40;

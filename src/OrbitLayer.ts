@@ -1,5 +1,6 @@
 import { LineLayer } from "@deck.gl/layers";
 import type { Trajectory } from "./externalDataStore";
+import { skyVertexShader } from "./stereographic";
 
 export type OrbitSegment = {
   index: number;
@@ -14,8 +15,8 @@ export function orbitSegments(trajectories: Trajectory[]): OrbitSegment[] {
 }
 
 // A minimal billboard segment shader: no path joins, rounded-cap discards, or
-// neighboring-position attributes. LineLayer's stock extrusion is not suitable
-// for this perspective view: its pixel offset is added without multiplying by w.
+// neighboring-position attributes. Pixel offsets need the homogeneous divisor
+// so line width stays constant under the stereographic mapping.
 const vertexShader = `#version 300 es
 #define SHADER_NAME orbit-layer-vertex-shader
 in vec3 positions;
@@ -44,10 +45,10 @@ void main(void) {
   vec4 target = project_position_to_clipspace(
     instanceTargetPositions, instanceTargetPositions64Low, vec3(0.0), targetCommon);
 
-  // Clip before the perspective divide. A pass can extend behind the camera;
-  // dividing those endpoints by w would flip or explode the strip's direction.
-  float sourceDistance = source.z + source.w;
-  float targetDistance = target.z + target.w;
+  // Clip the radial/angular far boundary before extrusion. The stereographic
+  // denominator is positive; passes can continue beyond the forward hemisphere.
+  float sourceDistance = source.w - source.z;
+  float targetDistance = target.w - target.z;
   if (sourceDistance <= 0.0 && targetDistance <= 0.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
@@ -82,6 +83,6 @@ export class OrbitLayer extends LineLayer<OrbitSegment> {
   static layerName = "OrbitLayer";
 
   getShaders() {
-    return { ...super.getShaders(), vs: vertexShader };
+    return { ...super.getShaders(), vs: skyVertexShader(vertexShader) };
   }
 }

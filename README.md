@@ -7,6 +7,10 @@ https://github.com/user-attachments/assets/9544b3a0-fc88-4ca9-a4cf-178382981a4a
 
 The satellite positions are rendered in a first person view. Some artistic liberty has been taken with the distances and visual sizes of satellites because they would be otherwise too small to see or click on.
 
+The sky uses stereographic projection, with distance-dependent satellite marker
+sizes and screen-space picking. For an illustrated explanation, read
+[Projecting the sky: rectilinear and stereographic](docs/PROJECTIONS.md).
+
 What you can do: You can pan around the view and zoom. Hovering on a satellite will show its name.
 
 ## Tech

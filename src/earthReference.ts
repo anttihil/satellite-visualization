@@ -1,16 +1,8 @@
 import { gstime } from "satellite.js";
-import { LayerExtension } from "@deck.gl/core";
 import type { ObserverLocation } from "./externalDataStore";
 
 export type Position = [number, number, number];
 export const REFERENCE_RADIUS = 1500;
-
-export class CompassLabelExtension extends LayerExtension {
-  getShaders() {
-    // Deck's billboard text offsets need the perspective divisor in a first-person view.
-    return { inject: { "vs:DECKGL_FILTER_SIZE": "size *= gl_Position.w;" } };
-  }
-}
 
 export function referencePosition(azimuth: number, elevation: number): Position {
   const horizontal = REFERENCE_RADIUS * Math.cos(elevation);
