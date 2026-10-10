@@ -5,6 +5,20 @@ import { StereographicViewport } from "../src/stereographic.ts";
 const close = (actual: number, expected: number) =>
   assert.ok(Math.abs(actual - expected) < 1e-6, `${actual} != ${expected}`);
 
+test("east/north/up directions match compass bearing and negative-up pitch", () => {
+  for (const bearing of [0, 90, 180, 270, 35]) {
+    for (const elevation of [-45, 0, 30, 89]) {
+      const viewport = new StereographicViewport({ width: 1600, height: 900, bearing, pitch: -elevation });
+      const b = bearing * Math.PI / 180;
+      const e = elevation * Math.PI / 180;
+      const center = viewport.project([100 * Math.cos(e) * Math.sin(b), 100 * Math.cos(e) * Math.cos(b), 100 * Math.sin(e)]);
+      close(center[0], 800);
+      close(center[1], 450);
+      close(center[2], 100 / viewport.skyFar);
+    }
+  }
+});
+
 test("range changes depth but not satellite angular placement", () => {
   const viewport = new StereographicViewport({ width: 1600, height: 900, fovy: 75, far: 2000 });
   const near = viewport.project([100, 100, 50]);

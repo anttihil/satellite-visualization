@@ -1,32 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-
-import { Deck } from "@deck.gl/core";
-import { TextLayer } from "@deck.gl/layers";
-import "@deck.gl/widgets/stylesheet.css";
-import { _StatsWidget as StatsWidget } from "@deck.gl/widgets";
-
-import { externalDataStore, locationStore, type Trajectory } from "./externalDataStore";
-import { compass, groundBands, groundDirections, horizon, sunElevation } from "./earthReference";
-import { StereographicExtension, StereographicView } from "./stereographic";
-import { SkyGroundLayer, SkyLabelLayer, SkyPathLayer, SkySatelliteLayer } from "./SkyLayers";
-import {
-  CONTROLLER,
-  FAR,
-  HEADER_REV_INDEX,
-  INITIAL_FOVY,
-  INITIAL_VIEWSTATE,
-  MAX_FOVY,
-  MIN_FOVY,
-  POINT_SIZE,
-  STRIDE_FLOATS,
-  WHEEL_LINE_PIXELS,
-  ZOOM_SPEED,
-} from "./consts";
+import { externalDataStore, locationStore } from "./externalDataStore";
+import { sunElevation } from "./earthReference";
+import { HEADER_REV_INDEX, INITIAL_FOVY, INITIAL_VIEWSTATE, MAX_FOVY, MIN_FOVY, WHEEL_LINE_PIXELS, ZOOM_SPEED } from "./consts";
 import { SatelliteDetails } from "./SatelliteDetails";
 import { SettingsMenu } from "./SettingsMenu";
-import { OrbitLayer, orbitSegments, type OrbitSegment } from "./OrbitLayer";
 import { PhoneOrientation, angleDifference, type OrientationStatus } from "./phoneOrientation";
 import { OrientationButton } from "./OrientationButton";
+import { SkyRenderer } from "./SkyRenderer";
 
 export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
@@ -37,284 +17,126 @@ export function SkyView() {
   const orientation = useRef<PhoneOrientation | null>(null);
 
   useEffect(() => {
-    const projection = new StereographicExtension();
+    const skyCanvas = canvas.current!;
+    const sky = new SkyRenderer(skyCanvas, container.current!);
     let fovy = INITIAL_FOVY;
+    const camera = { bearing: INITIAL_VIEWSTATE.bearing, pitch: INITIAL_VIEWSTATE.pitch };
     let hoveredIndex = -1;
     let selectedIndex = -1;
     let touchInput = window.matchMedia("(hover: none)").matches;
-    let lastTrajectories: Trajectory[] | null = null;
-    let segments: OrbitSegment[] = [];
-    let pitch = INITIAL_VIEWSTATE.pitch ?? 0;
-    let camera = { ...INITIAL_VIEWSTATE, bearing: INITIAL_VIEWSTATE.bearing ?? 0 };
-    let solarElevation = sunElevation(new Date(), locationStore.location);
-    const updateDaylight = () => {
-      solarElevation = sunElevation(new Date(), locationStore.location);
-    };
-    updateDaylight();
-    const updateTrajectories = () => {
-      externalDataStore.setTrajectoryIndices(
-        [hoveredIndex, selectedIndex].filter((index) => index >= 0),
-      );
-      deck.setProps({ layers: createLayers() });
+    const tooltip = document.createElement("div");
+    tooltip.className = "sky-tooltip";
+    tooltip.hidden = true;
+    container.current!.append(tooltip);
+    const updateHighlight = () => {
+      sky.setHighlight(hoveredIndex, selectedIndex);
+      externalDataStore.setTrajectoryIndices([hoveredIndex, selectedIndex].filter((index) => index >= 0));
     };
     const selectSatellite = (index: number) => {
       selectedIndex = index;
       if (touchInput) hoveredIndex = -1;
-      setSelectedSatelliteIndex(selectedIndex);
-      updateTrajectories();
+      setSelectedSatelliteIndex(index);
+      updateHighlight();
     };
-    function createLayers() {
-      const daylightAmount = Math.max(0, Math.min(1, (solarElevation + 6) / 12));
-      const twilightAmount = Math.max(0, 1 - Math.abs(solarElevation + 6) / 12);
-      const rim: [number, number, number] = [
-        45 + daylightAmount * 20 + twilightAmount * 45,
-        87 + daylightAmount * 25,
-        92 + daylightAmount * 50 + twilightAmount * 15,
-      ];
-      const backgroundLayers = [
-        new SkyGroundLayer<(typeof groundBands)[number]>({
-          id: "earth-ground",
-          data: groundBands,
-          extensions: [projection],
-          getPolygon: (d) => d.polygon,
-          coordinateSystem: "cartesian",
-          getFillColor: (d) => d.glow
-            ? [...rim, Math.round(42 * d.brightness)]
-            : [
-              5 + daylightAmount * 5 + d.brightness * (10 + twilightAmount * 8),
-              12 + daylightAmount * 8 + d.brightness * 22,
-              15 + daylightAmount * 12 + d.brightness * (23 + daylightAmount * 10),
-              255,
-            ],
-          parameters: { depthWriteEnabled: false, depthCompare: "always" },
-          updateTriggers: { getFillColor: solarElevation },
-        }),
-        new SkyPathLayer({
-          id: "ground-directions",
-          extensions: [projection],
-          data: groundDirections.filter((d) => d.cardinal || pitch > 40),
-          coordinateSystem: "cartesian",
-          getPath: (d) => d.path,
-          getColor: [75, 121, 128, 48],
-          getWidth: 1,
-          widthUnits: "pixels",
-          billboard: true,
-          parameters: { depthWriteEnabled: false },
-        }),
-        new SkyPathLayer({
-          id: "horizon",
-          extensions: [projection],
-          data: [{ path: horizon }],
-          coordinateSystem: "cartesian",
-          getPath: (d) => d.path,
-          getColor: [...rim, 180],
-          getWidth: 1.2,
-          widthUnits: "pixels",
-          billboard: true,
-          parameters: { depthWriteEnabled: false },
-        }),
-        new SkyPathLayer<(typeof compass)[number]>({
-          id: "compass-ticks",
-          extensions: [projection],
-          data: compass.filter((d) => d.cardinal || fovy < 55 || d.degrees % 30 === 0),
-          coordinateSystem: "cartesian",
-          getPath: (d) => d.path,
-          getColor: (d) => d.degrees === 0 ? [126, 211, 209, 200] : [112, 153, 160, 140],
-          getWidth: 1,
-          widthUnits: "pixels",
-          billboard: true,
-          parameters: { depthWriteEnabled: false },
-        }),
-        new TextLayer<(typeof compass)[number]>({
-          id: "compass-labels",
-          data: compass.filter((d) => d.cardinal || (fovy < 35 && d.degrees % 30 === 0) || fovy < 15),
-          coordinateSystem: "cartesian",
-          getPosition: (d) => d.position,
-          getText: (d) => d.text,
-          getSize: (d) => d.cardinal ? 15 : 11,
-          getColor: (d) => d.degrees === 0 ? [126, 211, 209, 255] : [155, 180, 187, 230],
-          fontFamily: "monospace",
-          characterSet: "auto",
-          extensions: [projection],
-          _subLayerProps: { characters: { type: SkyLabelLayer } },
-          billboard: true,
-          parameters: { depthWriteEnabled: false },
-        }),
-      ];
-      const { positions, satIds, trajectories } = externalDataStore;
-      if (!positions || !satIds.length) {
-        return backgroundLayers;
-      }
-      // Orbit geometry changes only when the worker returns a new pass, not on
-      // every shared-memory satellite-position update.
-      if (trajectories !== lastTrajectories) {
-        lastTrajectories = trajectories;
-        segments = orbitSegments(trajectories);
-      }
-      return [
-        ...backgroundLayers,
-        new OrbitLayer({
-          id: "satellite-trajectories",
-          extensions: [projection],
-          data: segments,
-          coordinateSystem: "cartesian",
-          getSourcePosition: (d) => d.source,
-          getTargetPosition: (d) => d.target,
-          getColor: (d) =>
-            d.index === selectedIndex ? [255, 190, 60, 220] : [80, 210, 255, 220],
-          getWidth: 2,
-          widthUnits: "pixels",
-          pickable: false,
-          parameters: { depthWriteEnabled: false, depthCompare: "always" },
-          updateTriggers: { getColor: selectedIndex },
-        }),
-        new SkySatelliteLayer({
-          id: "satellites",
-          extensions: [projection],
-          coordinateSystem: "cartesian",
-          pickable: true,
-          // A fresh descriptor uploads changed shared memory without copying the typed array.
-          data: {
-            length: satIds.length,
-            attributes: {
-              getPosition: { value: positions, size: STRIDE_FLOATS },
-            },
-          },
-          // Deck's automatic picking highlight also reacts to touch, independently
-          // of onHover. Keep it tied to genuine mouse hover so it cannot mask selection.
-          autoHighlight: false,
-          highlightedObjectIndex: hoveredIndex,
-          highlightColor: [100, 255, 140, 255],
-          getColor: (_, { index }) =>
-            index === selectedIndex ? [80, 210, 255, 255] : [255, 255, 255, 255],
-          updateTriggers: { getColor: selectedIndex },
-          // Explicit range-dependent pixel radius, bounded in SkySatelliteLayer.
-          // Keep the familiar zoom multiplier without off-axis size inflation.
-          pointSize: POINT_SIZE * (-(fovy / 25) + 4),
-        }),
-      ];
-    }
-
-    const deck = new Deck({
-      parent: container.current,
-      canvas: canvas.current,
-      views: new StereographicView({ far: FAR, fovy }),
-      viewState: camera,
-      controller: CONTROLLER,
-      layers: createLayers(),
-      onViewStateChange: ({ viewState, interactionState }) => {
-        const nextCamera = viewState as typeof INITIAL_VIEWSTATE;
-        const directionChanged = Math.abs(angleDifference(nextCamera.bearing ?? 0, camera.bearing)) > 0.0001 ||
-          Math.abs((nextCamera.pitch ?? 0) - (camera.pitch ?? 0)) > 0.0001;
-        // Deck also starts a drag for some stationary touches. Only a real
-        // change in viewing direction should interrupt sensor tracking.
-        if ((interactionState.isDragging && directionChanged) || orientation.current?.status.mode === "manual") {
-          orientation.current?.manual(interactionState.isDragging ?? false);
-        }
-        // A return-to-sensor tap can happen before drag inertia has finished.
-        if (orientation.current?.status.mode === "tracking") return null;
-        camera = { ...camera, ...nextCamera, bearing: nextCamera.bearing ?? camera.bearing };
-        deck.setProps({ viewState: camera });
-        const nextPitch = camera.pitch ?? 0;
-        if ((pitch > 40) !== (nextPitch > 40)) {
-          pitch = nextPitch;
-          deck.setProps({ layers: createLayers() });
-        }
-      },
-      widgets: import.meta.env.DEV ? [new StatsWidget({ type: "deck", placement: "bottom-left" })] : [],
-      pickingRadius: 25,
-      onHover: (info, event) => {
-        if (touchInput || event.pointerType === "touch" || window.matchMedia("(hover: none)").matches) return;
-        const index =
-          info.picked && info.layer?.id === "satellites" ? info.index : -1;
-        if (index === hoveredIndex) return;
-        hoveredIndex = index;
-        updateTrajectories();
-      },
-      onClick: (info, event) => {
-        // Keep Deck's tap gesture as a selection path alongside the native fallback.
-        // Either path must select the satellite and request its trajectory.
-        if (event.pointerType === "touch") touchInput = true;
-        selectSatellite(info.picked && info.layer?.id === "satellites" ? info.index : -1);
-      },
-      getTooltip: (info) => {
-        if (touchInput || window.matchMedia("(hover: none)").matches) return null;
-        if (!info.picked || info.layer?.id !== "satellites") return null;
-        const meta = externalDataStore.omm[info.index];
-
-        return meta.OBJECT_NAME;
-      },
-    });
-    const sensor = new PhoneOrientation(setOrientationStatus, () => ({ bearing: camera.bearing, pitch: camera.pitch ?? 0 }));
+    const sensor = new PhoneOrientation(setOrientationStatus, () => camera);
     orientation.current = sensor;
-    const skyCanvas = canvas.current!;
-    let touch: { id: number; x: number; y: number; moved: boolean } | null = null;
-    const onPointerDown = (event: PointerEvent) => {
-      touchInput = event.pointerType === "touch";
-      if (event.pointerType !== "touch") return;
+    const refreshDaylight = () => sky.setDaylight(sunElevation(new Date(), locationStore.location));
+    refreshDaylight();
+    const unsubscribeLocation = locationStore.subscribe(refreshDaylight);
+    const daylightInterval = window.setInterval(refreshDaylight, 60_000);
+    const pointers = new Map<number, { x: number; y: number; startX: number; startY: number; moved: boolean }>();
+    let pinchDistance = 0;
+    let velocity = { bearing: 0, pitch: 0 };
+    let lastMove = 0;
+    const clearHover = () => {
+      tooltip.hidden = true;
       if (hoveredIndex !== -1) {
         hoveredIndex = -1;
-        updateTrajectories();
+        updateHighlight();
       }
-      if (!event.isPrimary) {
-        touch = null;
-        return;
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      touchInput = event.pointerType === "touch";
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false });
+      skyCanvas.setPointerCapture(event.pointerId);
+      velocity = { bearing: 0, pitch: 0 };
+      lastMove = performance.now();
+      if (touchInput) clearHover();
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
+        pointers.forEach((p) => { p.moved = true; });
       }
-      touch = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
     };
     const onPointerMove = (event: PointerEvent) => {
       touchInput = event.pointerType === "touch";
-      if (touch?.id !== event.pointerId) return;
-      if (Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > 10) {
-        touch.moved = true;
+      const pointer = pointers.get(event.pointerId);
+      if (pointer) {
+        const dx = event.clientX - pointer.x, dy = event.clientY - pointer.y;
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        if (Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY) > 5) pointer.moved = true;
+        if (pointers.size === 2) {
+          const [a, b] = [...pointers.values()];
+          const distance = Math.hypot(a.x - b.x, a.y - b.y);
+          if (distance > 0 && pinchDistance > 0) fovy = Math.max(MIN_FOVY, Math.min(MAX_FOVY, fovy * pinchDistance / distance));
+          pinchDistance = distance;
+        } else if (pointer.moved && (dx || dy)) {
+          sensor.manual(true);
+          const scale = 180 / (Math.PI * sky.viewport.focalLength);
+          camera.bearing -= dx * scale;
+          camera.pitch = Math.max(-89, Math.min(89, camera.pitch + dy * scale));
+          const elapsed = Math.max(performance.now() - lastMove, 8);
+          velocity = { bearing: -dx * scale / elapsed, pitch: dy * scale / elapsed };
+          lastMove = performance.now();
+          clearHover();
+        }
+        return;
       }
+      if (touchInput || window.matchMedia("(hover: none)").matches) return;
+      const bounds = skyCanvas.getBoundingClientRect();
+      const index = sky.pick(event.clientX - bounds.left, event.clientY - bounds.top);
+      if (index !== hoveredIndex) {
+        hoveredIndex = index;
+        updateHighlight();
+      }
+      tooltip.hidden = index < 0;
+      tooltip.textContent = externalDataStore.omm[index]?.OBJECT_NAME ?? "";
+      tooltip.style.left = `${Math.min(event.clientX + 12, bounds.width - tooltip.offsetWidth - 8)}px`;
+      tooltip.style.top = `${Math.min(event.clientY + 12, bounds.height - tooltip.offsetHeight - 8)}px`;
     };
     const onPointerUp = (event: PointerEvent) => {
-      if (touch?.id !== event.pointerId) return;
-      const tapped = !touch.moved &&
-        Math.hypot(event.clientX - touch.x, event.clientY - touch.y) <= 10;
-      touch = null;
-      if (!tapped) return;
-      const bounds = skyCanvas.getBoundingClientRect();
-      const info = deck.pickObject({
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-        radius: 25,
-        layerIds: ["satellites"],
-      });
-      touchInput = true;
-      selectSatellite(info?.picked ? info.index : -1);
+      const pointer = pointers.get(event.pointerId);
+      pointers.delete(event.pointerId);
+      if (skyCanvas.hasPointerCapture(event.pointerId)) skyCanvas.releasePointerCapture(event.pointerId);
+      if (!pointer) return;
+      if (!pointer.moved && Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) <= 10) {
+        const bounds = skyCanvas.getBoundingClientRect();
+        selectSatellite(sky.pick(event.clientX - bounds.left, event.clientY - bounds.top));
+      }
+      if (!pointers.size) {
+        if (pointer.moved) sensor.manual(false);
+        if (performance.now() - lastMove > 100) velocity = { bearing: 0, pitch: 0 };
+      }
     };
-    const onPointerCancel = () => { touch = null; };
-    // Observe native input before Deck's gesture handlers process it.
-    skyCanvas.addEventListener("pointerdown", onPointerDown, true);
-    skyCanvas.addEventListener("pointermove", onPointerMove, true);
-    skyCanvas.addEventListener("pointerup", onPointerUp, true);
-    skyCanvas.addEventListener("pointercancel", onPointerCancel, true);
-    const refreshDaylight = () => {
-      updateDaylight();
-      deck.setProps({ layers: createLayers() });
+    const onPointerCancel = (event: PointerEvent) => {
+      pointers.delete(event.pointerId);
+      velocity = { bearing: 0, pitch: 0 };
+      if (!pointers.size) sensor.manual(false);
     };
-    const unsubscribeLocation = locationStore.subscribe(refreshDaylight);
-    const daylightInterval = window.setInterval(refreshDaylight, 60_000);
-
-    // Optical zoom: narrow the field of view instead of moving the camera.
     const onWheel = (event: WheelEvent) => {
-      if (event.target instanceof Element && event.target.closest(".location, .settings, .settings-toggle, .location-picker")) return;
-      const delta =
-        event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE_PIXELS;
-      fovy = Math.min(
-        Math.max(fovy * Math.exp(delta * ZOOM_SPEED), MIN_FOVY),
-        MAX_FOVY,
-      );
-      deck.setProps({
-        views: new StereographicView({ far: FAR, fovy }),
-        layers: createLayers(),
-      });
+      event.preventDefault();
+      const delta = event.deltaMode === 0 ? event.deltaY : event.deltaY * WHEEL_LINE_PIXELS;
+      fovy = Math.max(MIN_FOVY, Math.min(MAX_FOVY, fovy * Math.exp(delta * ZOOM_SPEED)));
     };
-    window.addEventListener("wheel", onWheel, { passive: true });
+    skyCanvas.addEventListener("pointerdown", onPointerDown);
+    skyCanvas.addEventListener("pointermove", onPointerMove);
+    skyCanvas.addEventListener("pointerup", onPointerUp);
+    skyCanvas.addEventListener("pointercancel", onPointerCancel);
+    skyCanvas.addEventListener("pointerleave", clearHover);
+    skyCanvas.addEventListener("wheel", onWheel, { passive: false });
 
-    // Shared-memory revisions update Deck directly, without React state or scheduling.
     let rafId = 0;
     let lastRev = -1;
     let lastPositions = externalDataStore.positions;
@@ -323,39 +145,41 @@ export function SkyView() {
     let lastFrame = performance.now();
     const render = () => {
       const now = performance.now();
+      const elapsed = Math.min(now - lastFrame, 100);
       const direction = sensor.direction();
       if (direction) {
-        const blend = 1 - Math.exp(-Math.min(now - lastFrame, 100) / 80);
-        const bearing = camera.bearing + angleDifference(direction.bearing, camera.bearing) * blend;
-        const nextPitch = (camera.pitch ?? 0) + (direction.pitch - (camera.pitch ?? 0)) * blend;
-        camera = { ...camera, bearing, pitch: nextPitch, transitionDuration: 0 };
-        deck.setProps({ viewState: camera });
-        if ((pitch > 40) !== (nextPitch > 40)) {
-          pitch = nextPitch;
-          deck.setProps({ layers: createLayers() });
-        }
+        const blend = 1 - Math.exp(-elapsed / 80);
+        camera.bearing += angleDifference(direction.bearing, camera.bearing) * blend;
+        camera.pitch += (direction.pitch - camera.pitch) * blend;
+        velocity = { bearing: 0, pitch: 0 };
+      } else if (!pointers.size) {
+        const decay = Math.exp(-elapsed / 100);
+        camera.bearing += velocity.bearing * 100 * (1 - decay);
+        camera.pitch = Math.max(-89, Math.min(89, camera.pitch + velocity.pitch * 100 * (1 - decay)));
+        velocity.bearing *= decay;
+        velocity.pitch *= decay;
       }
       lastFrame = now;
-      const { headerInts, positions, satIds, trajectoryRevision } = externalDataStore;
+      sky.setView(camera.bearing, camera.pitch, fovy);
+      const { headerInts, positions, satIds, trajectoryRevision, trajectories } = externalDataStore;
       const rev = headerInts ? Atomics.load(headerInts, HEADER_REV_INDEX) : -1;
       if (satIds !== lastSatIds) {
-        hoveredIndex = -1;
-        selectedIndex = -1;
+        hoveredIndex = selectedIndex = -1;
+        tooltip.hidden = true;
         setSelectedSatelliteIndex(-1);
+        updateHighlight();
       }
-
-      // Metadata can arrive after the revision for the worker's first full sweep.
-      if (
-        rev !== lastRev || positions !== lastPositions || satIds !== lastSatIds ||
-        trajectoryRevision !== lastTrajectoryRevision
-      ) {
+      if (rev !== lastRev || positions !== lastPositions || satIds !== lastSatIds) {
+        sky.setPositions(positions, satIds.length);
         lastRev = rev;
         lastPositions = positions;
         lastSatIds = satIds;
-        lastTrajectoryRevision = trajectoryRevision;
-        deck.setProps({ layers: createLayers() });
       }
-
+      if (trajectoryRevision !== lastTrajectoryRevision) {
+        sky.setTrajectories(trajectories);
+        lastTrajectoryRevision = trajectoryRevision;
+      }
+      sky.render();
       rafId = requestAnimationFrame(render);
     };
     render();
@@ -366,19 +190,21 @@ export function SkyView() {
       cancelAnimationFrame(rafId);
       unsubscribeLocation();
       window.clearInterval(daylightInterval);
-      window.removeEventListener("wheel", onWheel);
-      skyCanvas.removeEventListener("pointerdown", onPointerDown, true);
-      skyCanvas.removeEventListener("pointermove", onPointerMove, true);
-      skyCanvas.removeEventListener("pointerup", onPointerUp, true);
-      skyCanvas.removeEventListener("pointercancel", onPointerCancel, true);
+      skyCanvas.removeEventListener("pointerdown", onPointerDown);
+      skyCanvas.removeEventListener("pointermove", onPointerMove);
+      skyCanvas.removeEventListener("pointerup", onPointerUp);
+      skyCanvas.removeEventListener("pointercancel", onPointerCancel);
+      skyCanvas.removeEventListener("pointerleave", clearHover);
+      skyCanvas.removeEventListener("wheel", onWheel);
       externalDataStore.setTrajectoryIndices([]);
-      deck.finalize();
+      tooltip.remove();
+      sky.dispose();
     };
   }, []);
 
   return (
     <div ref={container} className="sky">
-      <canvas ref={canvas} />
+      <canvas ref={canvas} aria-label="Interactive satellite sky. Drag to look around, scroll or pinch to zoom, and select a satellite for details." />
       <SettingsMenu orientationEnabled={orientationEnabled} orientationStatus={orientationStatus} onOrientationChange={(enabled) => {
         setOrientationEnabled(enabled);
         orientation.current?.setEnabled(enabled);

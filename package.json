@@ -16,17 +16,11 @@
     "test": "node --test cloudflare/refresh.test.ts tests/phoneOrientation.test.ts tests/stereographic.test.ts"
   },
   "dependencies": {
-    "@deck.gl/core": "^9.4.0",
-    "@deck.gl/layers": "^9.4.0",
-    "@deck.gl/react": "^9.4.0",
-    "@deck.gl/widgets": "^9.4.0",
-    "@luma.gl/core": "^9.4.0",
-    "@luma.gl/engine": "^9.4.0",
-    "@luma.gl/webgpu": "^9.4.0",
     "leaflet": "^1.9.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "satellite.js": "^7.1.0"
+    "satellite.js": "^7.1.0",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
@@ -37,6 +31,7 @@
     "@types/node": "^24.13.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^10.10.0",

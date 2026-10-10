@@ -10,7 +10,7 @@ function close(actual: number, expected: number) {
   assert.ok(Math.abs(actual - expected) < 0.0001, `${actual} should equal ${expected}`);
 }
 
-test("rear-camera pointing direction uses compass azimuth and Deck pitch", () => {
+test("rear-camera pointing direction uses compass azimuth and sky camera pitch", () => {
   const north = phoneDirection(reading(0, 90, 0))!;
   close(north.bearing, 0);
   close(north.pitch, 0);

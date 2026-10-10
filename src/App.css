@@ -1,8 +1,13 @@
-/* Deck appends its canvas here and sizes it to 100% of this box. */
+/* The three.js drawing buffer follows this full-screen canvas. */
 .sky {
   position: fixed;
   inset: 0;
 }
+
+.sky > canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.sky-compass { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.sky-compass span { position: absolute; left: 0; top: 0; font-family: monospace; white-space: nowrap; }
+.sky-tooltip { position: absolute; pointer-events: none; padding: 6px 8px; background: #071013f2; border: 1px solid #6f999b66; border-radius: 4px; color: white; font-size: 12px; z-index: 2; }
 
 .settings-toggle,
 .orientation-button,

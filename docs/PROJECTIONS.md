@@ -6,7 +6,8 @@ implemented. The app now uses **stereographic projection**; rectilinear was its
 original projection and is included here for comparison.
 
 The implementation is in [`src/stereographic.ts`](../src/stereographic.ts) and
-[`src/SkyLayers.ts`](../src/SkyLayers.ts). It retains the original variable-distance
+[`src/SkyRenderer.ts`](../src/SkyRenderer.ts). The three.js renderer uses custom
+shader materials rather than a perspective camera projection. It retains the original variable-distance
 positions and `RANGE_SCALE`: unit directions are calculated temporarily during
 projection, and original ranges still control marker sizes.
 
@@ -150,8 +151,8 @@ Corners are farther from the axis than side midpoints and have more distortion.
 
 ## 4. Field of view, desktop, and mobile
 
-The app supplies `fovy = 75` to its `StereographicView` (which retains Deck.gl's
-first-person camera/controller), both initially and when rebuilding the view after wheel zoom in
+The app supplies `fovy = 75` to its `StereographicViewport`, both initially and
+when updating the view after wheel or pinch zoom in
 [`src/SkyView.tsx`](../src/SkyView.tsx). This means **75° vertical coverage**,
 not 75° horizontal coverage.
 
@@ -286,7 +287,7 @@ y = 2fY / (R + Z)
 That denominator contains `R`, the position's length. No choice of the constants
 `a`, `b`, `c`, and `d` makes `aX + bY + cZ + d` equal to
 `sqrt(X² + Y² + Z²) + Z` for arbitrary input positions. This is why simply
-supplying a different `projectionMatrix` to Deck.gl is insufficient.
+supplying a different `projectionMatrix` to a standard three.js camera is insufficient.
 
 For example, take two points on the same ray:
 
@@ -324,7 +325,7 @@ The GPU can perform the missing operations directly. Keep the matrix used for
 camera rotation, then compute the stereographic mapping in shader code before
 adding marker, label, or line-width offsets.
 
-The following GLSL is an **implementation sketch**, not a drop-in Deck.gl
+The following GLSL is an **implementation sketch**, not a drop-in three.js
 extension. It makes the coordinate conventions, framing, visibility, and depth
 choices explicit:
 
@@ -416,11 +417,10 @@ does not correctly clip a connected primitive.
 1. **Create a shared projection helper and uniforms.** A shader module should
    supply the rotation, viewport size, FOV-derived `fPx`, angular limit, and depth
    convention. Reuse its math in all participating layers.
-2. **Wire it into layer shaders at their anchor/endpoint projection stage.**
-   Use custom layer subclasses or appropriate shader injection points for
-   points, text, paths, and ground. Update `OrbitLayer`'s custom vertex shader
-   directly. A single final `DECKGL_FILTER_GL_POSITION` warp cannot supply all
-   the required endpoint, extrusion, and clipping changes.
+2. **Wire it into shaders at their anchor/endpoint projection stage.**
+   The three.js `ShaderMaterial`s project point centers, ground vertices, and
+   line endpoints using `skyProject`. HTML compass labels project their anchors
+   using the matching CPU helper before applying pixel-sized text.
 3. **Keep camera state and the controller.** Bearing, pitch, sensor updates,
    and drag rotation can continue driving the view. Derive the shader's rotation
    from that same state and update framing on resize and zoom. Do not apply the
@@ -429,8 +429,8 @@ does not correctly clip a connected primitive.
 4. **Implement visibility and screen-space sizing consistently.** Handle the
    worker's hidden positions explicitly, adapt angular-boundary clipping, and
    replace assumptions about perspective `w` throughout the layer shaders.
-5. **Use the identical shader mapping for GPU picking.** Provide matching CPU
-   projection/unprojection where Deck.gl integrations need it. Verify that no
+5. **Use the identical mapping for screen-space picking.** Provide matching CPU
+   projection/unprojection. Verify that no
    matrix-based culling or screen-coordinate calculation rejects or misplaces
    geometry that the nonlinear shader would render.
 
@@ -452,11 +452,11 @@ same camera rotation and stereographic formula as the GPU.
 
 | Current component | What a stereographic implementation must address |
 |---|---|
-| `PointCloudLayer` in `SkyView.tsx` | Project satellite centers; retain intentional distance-dependent sizing or explicitly redesign it. Keep markers circular and tap targets usable. |
-| Ground `PolygonLayer` | Project the tessellated sphere consistently; check triangle curvature approximation and clipping. |
-| Horizon and compass `PathLayer`s | Project endpoints and neighboring vertices before line extrusion; check widths, joins, and angular boundary crossings. |
-| Compass `TextLayer` and `CompassLabelExtension` | Project label anchors first, then apply pixel offsets. Revisit the existing perspective-`w` size correction. |
-| Custom `OrbitLayer` | Replace endpoint projection and its perspective near-plane clipping; compute pixel-width extrusion from the new projected endpoints. |
+| three.js `Points` | Project satellite centers; retain distance-dependent sizing. Keep markers circular and tap targets usable. |
+| Ground `Mesh` | Project the tessellated sphere consistently; check triangle curvature approximation and clipping. |
+| Instanced horizon and compass segments | Project endpoints before pixel-width extrusion; clip angular boundary crossings. |
+| HTML compass labels | Project label anchors first, then position fixed-pixel-size text. |
+| Instanced orbit segments | Clip endpoints at the angular/radial boundary before pixel-width extrusion. |
 
 The horizon already has 256 segments, and ground bands use angular subdivisions.
 That is helpful: nonlinear projection maps some straight segments to curves,
@@ -470,10 +470,10 @@ in place. The projection needs to occur at the appropriate stage for each layer.
 
 ### Picking, clipping, and zoom
 
-- **Picking:** Deck.gl's GPU picking pass should use the same projected
-  geometry as the visible pass. Check mouse hover and the explicit touch
-  `deck.pickObject()` fallback, especially near the edges. Matrix-based CPU
-  projection/unprojection cannot be assumed correct for nonlinear projection.
+- **Picking:** `SkyRenderer.pick()` uses the same rotation and stereographic
+  mapping as the visible pass, with a 25-pixel tolerance plus marker radius.
+  Check mouse hover and touch selection, especially near the edges. A stock
+  perspective raycaster cannot be assumed correct for nonlinear projection.
 - **Clipping:** choose an angular domain and a depth convention. Preserve
   exclusions for below-horizon satellites; the current worker writes a `HIDDEN`
   position sentinel, and its existing clipping behavior must be reassessed.

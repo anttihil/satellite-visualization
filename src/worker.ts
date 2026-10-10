@@ -139,7 +139,7 @@ function writeSlots(from: number, to: number) {
   Atomics.add(headerIntView, HEADER_REV_INDEX, 1);
 }
 
-let intervalId: NodeJS.Timeout | null = null;
+let intervalId: ReturnType<typeof setInterval> | null = null;
 
 function applySnapshot(snapshot: SatelliteSnapshot) {
   const records = snapshot.data.map((item) => json2satrec(item));

@@ -28,7 +28,7 @@ export function phoneDirection(event: CompassEvent): (Direction & { absolute: bo
   if (![x, y, z].every(Number.isFinite)) return null;
   return {
     bearing: Math.atan2(x, y) / radians,
-    // Deck's first-person pitch is negative above the horizon.
+    // The sky camera's pitch is negative above the horizon.
     pitch: Math.max(-89, Math.min(89, -Math.asin(Math.max(-1, Math.min(1, z))) / radians)),
     absolute: compass || event.absolute,
   };

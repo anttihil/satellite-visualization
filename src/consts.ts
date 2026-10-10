@@ -4,8 +4,6 @@
 // [2] = up (km)
 // The slot index identifies the satellite, so no ID is stored.
 
-import type { FirstPersonViewState } from "@deck.gl/core";
-
 // up === HIDDEN means the satellite is below the horizon.
 export const STRIDE_FLOATS = 3;
 export const BYTES_PER_FLOAT = 4;
@@ -42,8 +40,8 @@ export const CHUNKS = 8;
 // 0.28 degrees.
 // At exactly +/-90 the view direction meets the up vector and the picture collapses
 // sideways, so the pitch stops one degree short of the zenith.
-export const INITIAL_VIEWSTATE: FirstPersonViewState = {
-  position: [0, 0, 0],
+export const INITIAL_VIEWSTATE = {
+  bearing: 0,
   pitch: -20,
   minPitch: -89,
   maxPitch: 89,
@@ -59,14 +57,3 @@ export const MAX_FOVY = INITIAL_FOVY;
 export const WHEEL_LINE_PIXELS = 40;
 export const ZOOM_SPEED = 0.0015;
 export const POINT_SIZE = 150;
-
-// Look around only. Scroll, drag-pan and the keyboard all move the camera position.
-export const CONTROLLER = {
-  dragMode: "rotate" as const,
-  dragPan: false,
-  scrollZoom: false,
-  doubleClickZoom: false,
-  touchZoom: false,
-  keyboard: false,
-  inertia: 300,
-};
