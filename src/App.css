@@ -10,6 +10,7 @@
 .sky-tooltip { position: absolute; pointer-events: none; padding: 6px 8px; background: #071013f2; border: 1px solid #6f999b66; border-radius: 4px; color: white; font-size: 12px; z-index: 2; }
 
 .settings-toggle,
+.search-toggle,
 .orientation-button,
 .settings-close {
   display: grid;
@@ -31,12 +32,14 @@
 }
 
 .settings-toggle:hover,
+.search-toggle:hover,
 .orientation-button:hover,
 .settings-close:hover {
   background: #193035;
 }
 
 .settings-toggle:focus-visible,
+.search-toggle:focus-visible,
 .orientation-button:focus-visible,
 .settings-close:focus-visible {
   outline: 2px solid #7ed3d1;
@@ -50,6 +53,71 @@
   transform: translateX(-50%);
   border-radius: 50%;
   z-index: 1;
+}
+
+.search-toggle {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  top: max(16px, env(safe-area-inset-top));
+}
+
+.satellite-search {
+  position: fixed;
+  inset: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) auto auto;
+  box-sizing: border-box;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  margin: 0;
+  padding: 16px;
+  border: 1px solid #6f999b66;
+  border-radius: 8px;
+  background: #071013fc;
+  color: #c3d5d9;
+  font-size: 14px;
+  overscroll-behavior: contain;
+}
+.satellite-search::backdrop { background: #0008; }
+.satellite-search[open] { display: flex; flex-direction: column; }
+.satellite-search > :not(.search-results) { flex-shrink: 0; }
+.satellite-search .settings-header { margin-bottom: 16px; }
+.satellite-search input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid #6f999b66;
+  border-radius: 6px;
+  background: #102125;
+  color: #c3d5d9;
+  font: inherit;
+}
+.satellite-search p { color: #9bb4ba; }
+.search-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.search-pagination span { font-size: 12px; text-align: center; }
+.search-pagination .location-action { padding: 8px 10px; }
+.search-results { list-style: none; margin: 0; padding: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.search-results button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px;
+  border: 0;
+  border-top: 1px solid #6f999b33;
+  background: transparent;
+  color: #c3d5d9;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.search-results button:hover { background: #193035; }
+.search-results small { color: #9bb4ba; }
+.satellite-search input:focus-visible, .search-results button:focus-visible {
+  outline: 2px solid #7ed3d1;
+  outline-offset: -2px;
 }
 
 .orientation-button[data-mode="tracking"] { color: #7ed3d1; border-color: #7ed3d1; }
@@ -178,7 +246,7 @@
   position: fixed;
   padding: 12px;
   right: max(16px, env(safe-area-inset-right));
-  top: max(16px, env(safe-area-inset-top));
+  top: calc(max(16px, env(safe-area-inset-top)) + 56px);
   /* Avoid Chromium software-renderer occlusion artifacts on the WebGL canvas. */
   background: rgba(47, 79, 79, 0.99);
   width: 300px;
@@ -224,7 +292,7 @@
 
 .location-content {
   margin-top: 20px;
-  max-height: calc(100dvh - 120px);
+  max-height: calc(100dvh - 176px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }

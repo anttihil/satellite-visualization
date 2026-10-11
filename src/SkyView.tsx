@@ -7,6 +7,7 @@ import { SettingsMenu } from "./SettingsMenu";
 import { PhoneOrientation, angleDifference, type OrientationStatus } from "./phoneOrientation";
 import { OrientationButton } from "./OrientationButton";
 import { SkyRenderer } from "./SkyRenderer";
+import { SatelliteSearch } from "./SatelliteSearch";
 
 export function SkyView() {
   const container = useRef<HTMLDivElement>(null);
@@ -15,6 +16,7 @@ export function SkyView() {
   const [orientationEnabled, setOrientationEnabled] = useState(true);
   const [orientationStatus, setOrientationStatus] = useState<OrientationStatus>({ mode: "waiting", absolute: false });
   const orientation = useRef<PhoneOrientation | null>(null);
+  const searchSelection = useRef<((index: number) => void) | null>(null);
 
   useEffect(() => {
     const skyCanvas = canvas.current!;
@@ -38,6 +40,7 @@ export function SkyView() {
       setSelectedSatelliteIndex(index);
       updateHighlight();
     };
+    searchSelection.current = selectSatellite;
     const sensor = new PhoneOrientation(setOrientationStatus, () => camera);
     orientation.current = sensor;
     const refreshDaylight = () => sky.setCelestialBodies(celestialBodies(new Date(), locationStore.location));
@@ -187,6 +190,7 @@ export function SkyView() {
     return () => {
       sensor.dispose();
       orientation.current = null;
+      searchSelection.current = null;
       cancelAnimationFrame(rafId);
       unsubscribeLocation();
       window.clearInterval(daylightInterval);
@@ -210,6 +214,7 @@ export function SkyView() {
         orientation.current?.setEnabled(enabled);
       }} />
       <OrientationButton status={orientationStatus} onClick={() => orientation.current?.resume()} />
+      <SatelliteSearch onSelect={(index) => searchSelection.current?.(index)} />
       {selectedSatelliteIndex >= 0 && <SatelliteDetails selectedIndex={selectedSatelliteIndex} />}
     </div>
   );

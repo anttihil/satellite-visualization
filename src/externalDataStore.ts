@@ -22,6 +22,7 @@ export type Trajectory = {
 };
 
 const listeners = new Set<() => void>();
+const satelliteListeners = new Set<() => void>();
 const EARTH_RADIUS_KM = 6371;
 const LOCATION_MOVEMENT_KM = 0.1;
 const ALTITUDE_MOVEMENT_KM = 0.1;
@@ -74,6 +75,11 @@ export const locationStore = {
 
 export const externalDataStore = {
   omm: [] as OMMJsonObject[],
+  getSnapshot: () => externalDataStore.omm,
+  subscribe: (listener: () => void) => {
+    satelliteListeners.add(listener);
+    return () => { satelliteListeners.delete(listener); };
+  },
   buffer: null as SharedArrayBuffer | null,
   headerInts: null as Int32Array | null,
   positions: null as Float32Array | null,
@@ -132,6 +138,7 @@ export const externalDataStore = {
           this.positions = new Float32Array(d.sab, HEADER_BYTES);
           this.satIds = d.satIds;
           this.omm = d.omm;
+          satelliteListeners.forEach((listener) => listener());
           this.trajectoryIndices = [];
           this.trajectories = [];
           this.trajectoryRequestId++;
@@ -225,6 +232,7 @@ export const externalDataStore = {
     this.positions = null;
     this.satIds = [];
     this.omm = [];
+    satelliteListeners.forEach((listener) => listener());
     this.trajectoryIndices = [];
     this.trajectories = [];
     this.trajectoryRequestId++;
