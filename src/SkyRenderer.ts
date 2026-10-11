@@ -31,6 +31,7 @@ export class SkyRenderer {
     pointRadius: { value: POINT_SIZE },
     selected: { value: -1 },
     hovered: { value: -1 },
+    preview: { value: -1 },
   };
   private satellites: Mesh<InstancedBufferGeometry, ShaderMaterial>;
   private lines: Mesh;
@@ -43,6 +44,7 @@ export class SkyRenderer {
   private count = 0;
   private trajectories: Trajectory[] = [];
   private selected = -1;
+  private searchMatches = new Set<number>();
   private fovy = 75;
   private pitch = 0;
   private referenceKey = "";
@@ -54,10 +56,11 @@ export class SkyRenderer {
     const geometry = satelliteGeometry();
     geometry.setAttribute("satellitePosition", new InstancedBufferAttribute(new Float32Array(0), STRIDE_FLOATS));
     geometry.setAttribute("satelliteIndex", new InstancedBufferAttribute(new Float32Array(0), 1));
+    geometry.setAttribute("searchMatch", new InstancedBufferAttribute(new Float32Array(0), 1));
     this.satellites = new Mesh(geometry, this.material(`
       attribute vec3 satellitePosition;
-      attribute float satelliteIndex, panel;
-      uniform float pointRadius, selected, hovered;
+      attribute float satelliteIndex, panel, searchMatch;
+      uniform float pointRadius, selected, hovered, preview;
       uniform vec2 viewportSize;
       varying vec3 vNormal, vLocalPosition;
       varying float vPanel;
@@ -81,8 +84,10 @@ export class SkyRenderer {
         vNormal = rotation * normal;
         vLocalPosition = position;
         vPanel = panel;
-        vColor = satelliteIndex == hovered ? vec4(0.392, 1.0, 0.549, 1.0) :
-          satelliteIndex == selected ? vec4(0.314, 0.824, 1.0, 1.0) : vec4(1.0);
+        vColor = satelliteIndex == selected ? vec4(1.0, 0.745, 0.235, 0.8) :
+          satelliteIndex == preview ? vec4(1.0, 0.439, 0.784, 0.95) :
+          satelliteIndex == hovered ? vec4(0.392, 1.0, 0.549, 0.7) :
+          searchMatch > 0.5 ? vec4(1.0, 0.439, 0.784, 0.85) : vec4(1.0, 1.0, 1.0, 0.0);
       }
     `, `
       varying vec3 vNormal, vLocalPosition;
@@ -96,7 +101,7 @@ export class SkyRenderer {
           float grid = smoothstep(0.41, 0.48, max(cell.x, cell.y));
           color = mix(vec3(0.12, 0.36, 0.68), vec3(0.52, 0.72, 0.88), grid);
         }
-        color = mix(color, vColor.rgb, vColor.g > 0.95 && vColor.r < 0.5 ? 0.7 : vColor.r < 0.5 ? 0.6 : 0.0);
+        color = mix(color, vColor.rgb, vColor.a);
         gl_FragColor = vec4(color * light, 1.0);
       }
     `));
@@ -301,14 +306,35 @@ export class SkyRenderer {
       geometry.dispose();
       geometry.setAttribute("satellitePosition", new InstancedBufferAttribute(positions ?? new Float32Array(0), STRIDE_FLOATS).setUsage(DynamicDrawUsage));
       geometry.setAttribute("satelliteIndex", new InstancedBufferAttribute(Float32Array.from({ length: count }, (_, i) => i), 1));
+      this.updateSearchMatches();
       geometry.instanceCount = positions ? count : 0;
     }
     this.satellites.geometry.getAttribute("satellitePosition").needsUpdate = true;
   }
 
-  setHighlight(hovered: number, selected: number) {
+  setSearchMatches(indices: number[]) {
+    this.searchMatches = new Set(indices);
+    this.updateSearchMatches();
+    this.updateLines();
+  }
+
+  private updateSearchMatches() {
+    const flags = new Float32Array(this.count);
+    this.searchMatches.forEach((index) => { if (index >= 0 && index < this.count) flags[index] = 1; });
+    const geometry = this.satellites.geometry;
+    const attribute = geometry.getAttribute("searchMatch") as InstancedBufferAttribute;
+    if (attribute.count === this.count) {
+      attribute.array.set(flags);
+      attribute.needsUpdate = true;
+    } else {
+      geometry.setAttribute("searchMatch", new InstancedBufferAttribute(flags, 1).setUsage(DynamicDrawUsage));
+    }
+  }
+
+  setHighlight(hovered: number, selected: number, preview = -1) {
     this.uniforms.hovered.value = hovered;
     this.uniforms.selected.value = selected;
+    this.uniforms.preview.value = preview;
     if (this.selected !== selected) {
       this.selected = selected;
       this.updateLines();
@@ -330,7 +356,8 @@ export class SkyRenderer {
     groundDirections.filter((d) => d.cardinal || this.pitch > 40).forEach((d) => path(d.path, [75, 121, 128, 48], 1));
     compass.filter((d) => d.cardinal || this.fovy < 55 || d.degrees % 30 === 0).forEach((d) =>
       path(d.path, d.degrees === 0 ? [126, 211, 209, 200] : [112, 153, 160, 140], 1));
-    this.trajectories.forEach((d) => path(d.path, d.index === this.selected ? [255, 190, 60, 220] : [80, 210, 255, 220], 2));
+    this.trajectories.forEach((d) => path(d.path, d.index === this.selected ? [255, 190, 60, 220] :
+      this.searchMatches.has(d.index) ? [255, 112, 200, 220] : [80, 210, 255, 220], 2));
     const geometry = new InstancedBufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(new Float32Array([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, -1, 0, 1, 1, 0, 0, 1, 0]), 3));
     geometry.setAttribute("source", new InstancedBufferAttribute(new Float32Array(segments.flatMap((s) => s.source)), 3));

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { externalDataStore, locationStore } from "./externalDataStore";
 import { celestialBodies } from "./celestialBodies";
-import { HEADER_REV_INDEX, INITIAL_FOVY, INITIAL_VIEWSTATE, MAX_FOVY, MIN_FOVY, WHEEL_LINE_PIXELS, ZOOM_SPEED } from "./consts";
+import { FAR, HEADER_REV_INDEX, HIDDEN, INITIAL_FOVY, INITIAL_VIEWSTATE, MAX_FOVY, MIN_FOVY, STRIDE_FLOATS, WHEEL_LINE_PIXELS, ZOOM_SPEED } from "./consts";
 import { SatelliteDetails } from "./SatelliteDetails";
 import { SettingsMenu } from "./SettingsMenu";
 import { PhoneOrientation, angleDifference, type OrientationStatus } from "./phoneOrientation";
@@ -17,6 +17,15 @@ export function SkyView() {
   const [orientationStatus, setOrientationStatus] = useState<OrientationStatus>({ mode: "waiting", absolute: false });
   const orientation = useRef<PhoneOrientation | null>(null);
   const searchSelection = useRef<((index: number) => void) | null>(null);
+  const searchPreview = useRef<((index: number) => void) | null>(null);
+  const searchMatches = useRef<((indices: number[]) => void) | null>(null);
+  const searchShow = useRef<((index: number) => void) | null>(null);
+  const previewSearchResult = useCallback((index: number) => searchPreview.current?.(index), []);
+  const highlightSearchMatches = useCallback((indices: number[]) => searchMatches.current?.(indices), []);
+  const showSearchResult = useCallback((index: number, center: boolean) => {
+    if (center) searchShow.current?.(index);
+    else searchSelection.current?.(index);
+  }, []);
 
   useEffect(() => {
     const skyCanvas = canvas.current!;
@@ -25,14 +34,16 @@ export function SkyView() {
     const camera = { bearing: INITIAL_VIEWSTATE.bearing, pitch: INITIAL_VIEWSTATE.pitch };
     let hoveredIndex = -1;
     let selectedIndex = -1;
+    let previewIndex = -1;
+    let previewTimer = 0;
     let touchInput = window.matchMedia("(hover: none)").matches;
     const tooltip = document.createElement("div");
     tooltip.className = "sky-tooltip";
     tooltip.hidden = true;
     container.current!.append(tooltip);
     const updateHighlight = () => {
-      sky.setHighlight(hoveredIndex, selectedIndex);
-      externalDataStore.setTrajectoryIndices([hoveredIndex, selectedIndex].filter((index) => index >= 0));
+      sky.setHighlight(hoveredIndex, selectedIndex, previewIndex);
+      externalDataStore.setTrajectoryIndices([previewIndex >= 0 ? previewIndex : hoveredIndex, selectedIndex].filter((index) => index >= 0));
     };
     const selectSatellite = (index: number) => {
       selectedIndex = index;
@@ -41,7 +52,28 @@ export function SkyView() {
       updateHighlight();
     };
     searchSelection.current = selectSatellite;
+    searchMatches.current = (indices) => sky.setSearchMatches(indices);
+    searchPreview.current = (index) => {
+      previewIndex = index;
+      sky.setHighlight(hoveredIndex, selectedIndex, previewIndex);
+      window.clearTimeout(previewTimer);
+      // Avoid requesting paths for rows the pointer only passes over briefly.
+      if (index >= 0) previewTimer = window.setTimeout(updateHighlight, 120);
+      else updateHighlight();
+    };
     const sensor = new PhoneOrientation(setOrientationStatus, () => camera);
+    searchShow.current = (index) => {
+      const positions = externalDataStore.positions;
+      const offset = index * STRIDE_FLOATS;
+      const east = positions?.[offset], north = positions?.[offset + 1], up = positions?.[offset + 2];
+      if (east !== undefined && north !== undefined && up !== undefined && up !== HIDDEN && up > 0 && Math.hypot(east, north, up) < FAR) {
+        sensor.manual();
+        velocity = { bearing: 0, pitch: 0 };
+        camera.bearing = Math.atan2(east, north) * 180 / Math.PI;
+        camera.pitch = -Math.min(89, Math.atan2(up, Math.hypot(east, north)) * 180 / Math.PI);
+      }
+      selectSatellite(index);
+    };
     orientation.current = sensor;
     const refreshDaylight = () => sky.setCelestialBodies(celestialBodies(new Date(), locationStore.location));
     refreshDaylight();
@@ -60,6 +92,7 @@ export function SkyView() {
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
+      skyCanvas.focus({ preventScroll: true });
       touchInput = event.pointerType === "touch";
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, moved: false });
       skyCanvas.setPointerCapture(event.pointerId);
@@ -168,6 +201,8 @@ export function SkyView() {
       const rev = headerInts ? Atomics.load(headerInts, HEADER_REV_INDEX) : -1;
       if (satIds !== lastSatIds) {
         hoveredIndex = selectedIndex = -1;
+        previewIndex = -1;
+        window.clearTimeout(previewTimer);
         tooltip.hidden = true;
         setSelectedSatelliteIndex(-1);
         updateHighlight();
@@ -191,6 +226,8 @@ export function SkyView() {
       sensor.dispose();
       orientation.current = null;
       searchSelection.current = null;
+      searchPreview.current = searchMatches.current = searchShow.current = null;
+      window.clearTimeout(previewTimer);
       cancelAnimationFrame(rafId);
       unsubscribeLocation();
       window.clearInterval(daylightInterval);
@@ -208,13 +245,13 @@ export function SkyView() {
 
   return (
     <div ref={container} className="sky">
-      <canvas ref={canvas} aria-label="Interactive sky with satellites, the Sun and the Moon. Drag to look around, scroll or pinch to zoom, and select a satellite for details." />
+      <canvas ref={canvas} tabIndex={0} aria-label="Interactive sky with satellites, the Sun and the Moon. Drag to look around, scroll or pinch to zoom, and select a satellite for details." />
       <SettingsMenu orientationEnabled={orientationEnabled} orientationStatus={orientationStatus} onOrientationChange={(enabled) => {
         setOrientationEnabled(enabled);
         orientation.current?.setEnabled(enabled);
       }} />
       <OrientationButton status={orientationStatus} onClick={() => orientation.current?.resume()} />
-      <SatelliteSearch onSelect={(index) => searchSelection.current?.(index)} />
+      <SatelliteSearch onSelect={showSearchResult} onPreview={previewSearchResult} onMatches={highlightSearchMatches} />
       {selectedSatelliteIndex >= 0 && <SatelliteDetails selectedIndex={selectedSatelliteIndex} />}
     </div>
   );
