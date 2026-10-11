@@ -17,7 +17,8 @@ What you can do: You can pan around the view and zoom. Hovering on a satellite w
 The app uses three.js to render CelesTrak(tm) data. Most of the mathematical calculations in this demo are from satellite.js.
 
 `src/SkyRenderer.ts` owns the three.js scene, GPU buffers, and shader materials.
-Satellites use a single `Points` draw call; ground uses a tessellated mesh, and
+Satellites use a shared low-poly 3D model with a metal body, solar panels, and an
+antenna in a single instanced draw call; ground uses a tessellated mesh, and
 horizon, compass, and orbit paths use instanced pixel-width line segments.
 `src/stereographic.ts` shares the projection math between GPU shaders and
 screen-space picking. `src/SkyView.tsx` handles drag rotation, wheel/pinch zoom,

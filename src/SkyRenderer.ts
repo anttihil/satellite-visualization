@@ -1,12 +1,13 @@
 import {
   BufferAttribute, BufferGeometry, Camera, DoubleSide, DynamicDrawUsage,
-  InstancedBufferAttribute, InstancedBufferGeometry, Mesh, Points, Scene,
+  InstancedBufferAttribute, InstancedBufferGeometry, Mesh, Scene,
   ShaderMaterial, Vector2, WebGLRenderer,
 } from "three";
 import { FAR, HIDDEN, POINT_SIZE, STRIDE_FLOATS } from "./consts";
 import { compass, groundBands, groundDirections, horizon } from "./earthReference";
 import type { Trajectory } from "./externalDataStore";
-import { MAX_POINT_RADIUS, MIN_POINT_RADIUS, skyProjectionShader, StereographicViewport } from "./stereographic";
+import { skyProjectionShader, StereographicViewport } from "./stereographic";
+import { MAX_MODEL_RADIUS, MIN_MODEL_RADIUS, MODEL_SIZE_SCALE, satelliteGeometry } from "./satelliteModel";
 
 type Segment = { source: number[]; target: number[]; color: number[]; width: number };
 const fragmentShader = `
@@ -27,11 +28,10 @@ export class SkyRenderer {
     daylight: { value: 0 },
     twilight: { value: 0 },
     pointRadius: { value: POINT_SIZE },
-    pixelRatio: { value: 1 },
     selected: { value: -1 },
     hovered: { value: -1 },
   };
-  private satellites: Points;
+  private satellites: Mesh<InstancedBufferGeometry, ShaderMaterial>;
   private lines: Mesh;
   private ground: Mesh;
   private labels: HTMLSpanElement[];
@@ -48,27 +48,57 @@ export class SkyRenderer {
     this.renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setClearColor(0x000000, 0);
     this.viewport = new StereographicViewport({ width: 1, height: 1 });
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(new Float32Array(0), STRIDE_FLOATS));
-    this.satellites = new Points(geometry, this.material(`
-      attribute float satelliteIndex;
-      uniform float pointRadius, pixelRatio, selected, hovered;
+    const geometry = satelliteGeometry();
+    geometry.setAttribute("satellitePosition", new InstancedBufferAttribute(new Float32Array(0), STRIDE_FLOATS));
+    geometry.setAttribute("satelliteIndex", new InstancedBufferAttribute(new Float32Array(0), 1));
+    this.satellites = new Mesh(geometry, this.material(`
+      attribute vec3 satellitePosition;
+      attribute float satelliteIndex, panel;
+      uniform float pointRadius, selected, hovered;
+      uniform vec2 viewportSize;
+      varying vec3 vNormal, vLocalPosition;
+      varying float vPanel;
       varying vec4 vColor;
+      mat3 modelRotation() {
+        float roll = sin(satelliteIndex * 2.39996) * 0.7;
+        mat3 rx = mat3(1.0, 0.0, 0.0, 0.0, 0.8525, 0.5227, 0.0, -0.5227, 0.8525);
+        mat3 ry = mat3(0.9004, 0.0, 0.4350, 0.0, 1.0, 0.0, -0.4350, 0.0, 0.9004);
+        mat3 rz = mat3(cos(roll), sin(roll), 0.0, -sin(roll), cos(roll), 0.0, 0.0, 0.0, 1.0);
+        return rz * ry * rx;
+      }
       void main() {
-        gl_Position = skyProject(position);
-        float radius = clamp(pointRadius / max(length(position), 0.0001), ${MIN_POINT_RADIUS.toFixed(2)}, ${MAX_POINT_RADIUS.toFixed(2)});
-        gl_PointSize = radius * 2.0 * pixelRatio;
+        gl_Position = skyProject(satellitePosition);
+        float radius = clamp(pointRadius * ${MODEL_SIZE_SCALE.toFixed(2)} / max(length(satellitePosition), 0.0001), ${MIN_MODEL_RADIUS.toFixed(2)}, ${MAX_MODEL_RADIUS.toFixed(2)});
+        mat3 rotation = modelRotation();
+        vec3 vertex = rotation * position;
+        gl_Position.xy += vertex.xy * radius * 2.0 / viewportSize * gl_Position.w;
+        // Local depth makes the bus and wings occlude correctly, without
+        // changing clipping for hidden satellites or the sky projection.
+        if (abs(gl_Position.z) < gl_Position.w) gl_Position.z -= vertex.z * 0.0001 * gl_Position.w;
+        vNormal = rotation * normal;
+        vLocalPosition = position;
+        vPanel = panel;
         vColor = satelliteIndex == hovered ? vec4(0.392, 1.0, 0.549, 1.0) :
           satelliteIndex == selected ? vec4(0.314, 0.824, 1.0, 1.0) : vec4(1.0);
       }
     `, `
+      varying vec3 vNormal, vLocalPosition;
+      varying float vPanel;
       varying vec4 vColor;
       void main() {
-        float distanceFromCenter = length(gl_PointCoord - 0.5) * 2.0;
-        if (distanceFromCenter > 1.0) discard;
-        gl_FragColor = vec4(vColor.rgb, vColor.a * (1.0 - smoothstep(0.8, 1.0, distanceFromCenter)));
+        float light = 0.48 + 0.52 * max(dot(normalize(vNormal), normalize(vec3(-0.4, 0.7, 1.0))), 0.0);
+        vec3 color = vec3(0.86, 0.89, 0.94);
+        if (vPanel > 0.5) {
+          vec2 cell = abs(fract((vLocalPosition.xy + vec2(0.995, 0.25)) * vec2(12.3, 8.0)) - 0.5);
+          float grid = smoothstep(0.41, 0.48, max(cell.x, cell.y));
+          color = mix(vec3(0.12, 0.36, 0.68), vec3(0.52, 0.72, 0.88), grid);
+        }
+        color = mix(color, vColor.rgb, vColor.g > 0.95 && vColor.r < 0.5 ? 0.7 : vColor.r < 0.5 ? 0.6 : 0.0);
+        gl_FragColor = vec4(color * light, 1.0);
       }
     `));
+    this.satellites.material.depthTest = true;
+    this.satellites.material.depthWrite = true;
     this.satellites.frustumCulled = false;
     this.satellites.renderOrder = 3;
 
@@ -157,7 +187,6 @@ export class SkyRenderer {
     this.uniforms.skyView.value.copy(this.viewport.viewMatrix);
     this.uniforms.skyScale.value.set(4 * this.viewport.focalLength / width, 4 * this.viewport.focalLength / height);
     this.uniforms.viewportSize.value.set(width, height);
-    this.uniforms.pixelRatio.value = pixelRatio;
     this.uniforms.pointRadius.value = POINT_SIZE * (4 - fovy / 25);
     this.fovy = fovy;
     this.pitch = pitch;
@@ -185,16 +214,16 @@ export class SkyRenderer {
     if (positions !== this.positions || count !== this.count) {
       this.positions = positions;
       this.count = count;
-      this.satellites.geometry.dispose();
-      const geometry = new BufferGeometry();
+      const geometry = this.satellites.geometry;
       // Keep the worker's shared array as the attribute backing store. Revisions
       // upload it directly; no per-satellite objects or React updates are needed.
-      geometry.setAttribute("position", new BufferAttribute(positions ?? new Float32Array(0), STRIDE_FLOATS).setUsage(DynamicDrawUsage));
-      geometry.setAttribute("satelliteIndex", new BufferAttribute(Float32Array.from({ length: count }, (_, i) => i), 1));
-      geometry.setDrawRange(0, count);
-      this.satellites.geometry = geometry;
+      // Dispose the old GPU buffers before replacing instance attributes.
+      geometry.dispose();
+      geometry.setAttribute("satellitePosition", new InstancedBufferAttribute(positions ?? new Float32Array(0), STRIDE_FLOATS).setUsage(DynamicDrawUsage));
+      geometry.setAttribute("satelliteIndex", new InstancedBufferAttribute(Float32Array.from({ length: count }, (_, i) => i), 1));
+      geometry.instanceCount = positions ? count : 0;
     }
-    this.satellites.geometry.getAttribute("position").needsUpdate = true;
+    this.satellites.geometry.getAttribute("satellitePosition").needsUpdate = true;
   }
 
   setHighlight(hovered: number, selected: number) {
@@ -251,7 +280,7 @@ export class SkyRenderer {
       const py = this.viewport.height / 2 - scale * (m[1] * east + m[5] * north + m[9] * up);
       if (px < 0 || py < 0 || px > this.viewport.width || py > this.viewport.height) continue;
       const distance = Math.hypot(px - x, py - y);
-      const markerRadius = Math.max(MIN_POINT_RADIUS, Math.min(MAX_POINT_RADIUS, this.uniforms.pointRadius.value / range));
+      const markerRadius = Math.max(MIN_MODEL_RADIUS, Math.min(MAX_MODEL_RADIUS, this.uniforms.pointRadius.value * MODEL_SIZE_SCALE / range));
       if (distance <= radius + markerRadius && distance < closest) {
         closest = distance;
         picked = i;
