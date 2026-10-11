@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { externalDataStore, locationStore } from "./externalDataStore";
-import { sunElevation } from "./earthReference";
+import { celestialBodies } from "./celestialBodies";
 import { HEADER_REV_INDEX, INITIAL_FOVY, INITIAL_VIEWSTATE, MAX_FOVY, MIN_FOVY, WHEEL_LINE_PIXELS, ZOOM_SPEED } from "./consts";
 import { SatelliteDetails } from "./SatelliteDetails";
 import { SettingsMenu } from "./SettingsMenu";
@@ -40,10 +40,10 @@ export function SkyView() {
     };
     const sensor = new PhoneOrientation(setOrientationStatus, () => camera);
     orientation.current = sensor;
-    const refreshDaylight = () => sky.setDaylight(sunElevation(new Date(), locationStore.location));
+    const refreshDaylight = () => sky.setCelestialBodies(celestialBodies(new Date(), locationStore.location));
     refreshDaylight();
     const unsubscribeLocation = locationStore.subscribe(refreshDaylight);
-    const daylightInterval = window.setInterval(refreshDaylight, 60_000);
+    const daylightInterval = window.setInterval(refreshDaylight, 10_000);
     const pointers = new Map<number, { x: number; y: number; startX: number; startY: number; moved: boolean }>();
     let pinchDistance = 0;
     let velocity = { bearing: 0, pitch: 0 };
@@ -204,7 +204,7 @@ export function SkyView() {
 
   return (
     <div ref={container} className="sky">
-      <canvas ref={canvas} aria-label="Interactive satellite sky. Drag to look around, scroll or pinch to zoom, and select a satellite for details." />
+      <canvas ref={canvas} aria-label="Interactive sky with satellites, the Sun and the Moon. Drag to look around, scroll or pinch to zoom, and select a satellite for details." />
       <SettingsMenu orientationEnabled={orientationEnabled} orientationStatus={orientationStatus} onOrientationChange={(enabled) => {
         setOrientationEnabled(enabled);
         orientation.current?.setEnabled(enabled);

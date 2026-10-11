@@ -13,7 +13,7 @@
     "cf:types": "wrangler types",
     "check:worker": "wrangler types && tsc -p tsconfig.worker.json",
     "seed:data": "node scripts/seed-data.ts",
-    "test": "node --test cloudflare/refresh.test.ts tests/phoneOrientation.test.ts tests/stereographic.test.ts"
+    "test": "node --test cloudflare/refresh.test.ts tests/phoneOrientation.test.ts tests/stereographic.test.ts tests/celestialBodies.test.ts"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

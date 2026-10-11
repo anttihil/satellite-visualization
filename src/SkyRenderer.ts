@@ -1,13 +1,14 @@
 import {
   BufferAttribute, BufferGeometry, Camera, DoubleSide, DynamicDrawUsage,
   InstancedBufferAttribute, InstancedBufferGeometry, Mesh, Scene,
-  ShaderMaterial, Vector2, WebGLRenderer,
+  ShaderMaterial, Vector2, Vector3, WebGLRenderer,
 } from "three";
 import { FAR, HIDDEN, POINT_SIZE, STRIDE_FLOATS } from "./consts";
-import { compass, groundBands, groundDirections, horizon } from "./earthReference";
+import { compass, groundBands, groundDirections, horizon, REFERENCE_RADIUS } from "./earthReference";
 import type { Trajectory } from "./externalDataStore";
 import { skyProjectionShader, StereographicViewport } from "./stereographic";
 import { MAX_MODEL_RADIUS, MIN_MODEL_RADIUS, MODEL_SIZE_SCALE, satelliteGeometry } from "./satelliteModel";
+import type { CelestialBody } from "./celestialBodies";
 
 type Segment = { source: number[]; target: number[]; color: number[]; width: number };
 const fragmentShader = `
@@ -34,6 +35,8 @@ export class SkyRenderer {
   private satellites: Mesh<InstancedBufferGeometry, ShaderMaterial>;
   private lines: Mesh;
   private ground: Mesh;
+  private sun: Mesh<BufferGeometry, ShaderMaterial>;
+  private moon: Mesh<BufferGeometry, ShaderMaterial>;
   private labels: HTMLSpanElement[];
   private labelContainer: HTMLDivElement;
   private positions: Float32Array | null = null;
@@ -153,7 +156,9 @@ export class SkyRenderer {
     `));
     this.lines.frustumCulled = false;
     this.lines.renderOrder = 2;
-    this.scene.add(this.ground, this.lines, this.satellites);
+    this.sun = this.createCelestialBody(true);
+    this.moon = this.createCelestialBody(false);
+    this.scene.add(this.sun, this.moon, this.ground, this.lines, this.satellites);
     this.labelContainer = document.createElement("div");
     this.labelContainer.className = "sky-compass";
     this.labelContainer.setAttribute("aria-hidden", "true");
@@ -173,6 +178,81 @@ export class SkyRenderer {
       uniforms: this.uniforms, vertexShader: skyProjectionShader + vertexShader,
       fragmentShader: fragment, transparent: true, depthTest: false, depthWrite: false, side: DoubleSide,
     });
+  }
+
+  private createCelestialBody(isSun: boolean) {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(new Float32Array([
+      -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0,
+    ]), 3));
+    const material = this.material(`
+      uniform vec3 bodyDirection, bodyRight, bodyUp;
+      uniform float angularRadius;
+      varying vec2 vDisc;
+      varying float vElevation;
+      void main() {
+        vDisc = position.xy * ${isSun ? "3.5" : "1.05"};
+        vec3 direction = bodyDirection + tan(angularRadius) * (bodyRight * vDisc.x + bodyUp * vDisc.y);
+        vElevation = direction.z;
+        gl_Position = skyProject(normalize(direction) * ${REFERENCE_RADIUS.toFixed(1)});
+      }
+    `, `
+      uniform vec3 localLight;
+      varying vec2 vDisc;
+      varying float vElevation;
+      void main() {
+        if (vElevation < 0.0) discard;
+        float r = length(vDisc);
+        ${isSun ? `
+          float disc = 1.0 - smoothstep(0.98, 1.0, r);
+          float glow = exp(-r * r * 1.5) * 0.28 * (1.0 - smoothstep(2.5, 3.5, r));
+          vec3 color = mix(vec3(1.0, 0.56, 0.16), vec3(1.0, 0.96, 0.72), disc);
+          gl_FragColor = vec4(color, max(disc, glow));
+        ` : `
+          if (r >= 1.0) discard;
+          vec3 normal = vec3(vDisc, sqrt(max(0.0, 1.0 - r * r)));
+          float light = max(dot(normal, localLight), 0.0);
+          // Broad maria and small crater rims keep the lunar disc legible at zoom.
+          float maria = smoothstep(0.15, 0.7, sin(vDisc.x * 9.0 + sin(vDisc.y * 6.0)) * sin(vDisc.y * 8.0));
+          vec2 cellId = floor(vDisc * 13.0);
+          vec3 random = fract(sin(vec3(dot(cellId, vec2(127.1, 311.7)), dot(cellId, vec2(269.5, 183.3)), dot(cellId, vec2(419.2, 371.9)))) * 43758.5453);
+          vec2 cells = fract(vDisc * 13.0) - (0.25 + random.xy * 0.5);
+          float craterRadius = 0.06 + random.z * 0.16;
+          float craters = smoothstep(craterRadius - 0.035, craterRadius, length(cells)) *
+            (1.0 - smoothstep(craterRadius, craterRadius + 0.045, length(cells)));
+          vec3 surface = mix(vec3(0.85, 0.87, 0.9), vec3(0.49, 0.53, 0.58), maria * 0.55) - craters * 0.08;
+          gl_FragColor = vec4(surface * (0.035 + 0.965 * sqrt(light)), 1.0 - smoothstep(0.98, 1.0, r));
+        `}
+      }
+    `);
+    material.uniforms = {
+      ...this.uniforms,
+      bodyDirection: { value: new Vector3() },
+      bodyRight: { value: new Vector3() },
+      bodyUp: { value: new Vector3() },
+      angularRadius: { value: 0 },
+      localLight: { value: new Vector3() },
+    };
+    const mesh = new Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = isSun ? -2 : -1;
+    return mesh;
+  }
+
+  setCelestialBodies(bodies: { sun: CelestialBody; moon: CelestialBody }) {
+    for (const [mesh, body] of [[this.sun, bodies.sun], [this.moon, bodies.moon]] as const) {
+      const uniforms = mesh.material.uniforms;
+      const right = new Vector3().crossVectors(body.direction, new Vector3(0, 0, 1));
+      if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
+      right.normalize();
+      const up = new Vector3().crossVectors(right, body.direction).normalize();
+      uniforms.bodyDirection.value.copy(body.direction);
+      uniforms.bodyRight.value.copy(right);
+      uniforms.bodyUp.value.copy(up);
+      uniforms.angularRadius.value = body.angularRadius;
+      uniforms.localLight.value.set(body.illumination.dot(right), body.illumination.dot(up), -body.illumination.dot(body.direction));
+    }
+    this.setDaylight(Math.asin(bodies.sun.direction.z) * 180 / Math.PI);
   }
 
   setView(bearing: number, pitch: number, fovy: number) {
@@ -292,7 +372,7 @@ export class SkyRenderer {
   render() { this.renderer.render(this.scene, this.camera); }
 
   dispose() {
-    for (const object of [this.ground, this.lines, this.satellites]) {
+    for (const object of [this.ground, this.lines, this.satellites, this.sun, this.moon]) {
       object.geometry.dispose();
       (object.material as ShaderMaterial).dispose();
     }
